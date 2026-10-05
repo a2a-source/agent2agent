@@ -5,7 +5,7 @@
 **English** | [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-70dcd0?style=flat-square)](LICENSE)
-[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#status)
+[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#roadmap)
 [![Docs: EN / 中文](https://img.shields.io/badge/Docs-EN%20%2F%20%E4%B8%AD%E6%96%87-4c87c6?style=flat-square)](README.zh-CN.md)
 [![Contributions: Welcome](https://img.shields.io/badge/Contributions-Welcome-3ba776?style=flat-square)](#contributing)
 
@@ -15,10 +15,6 @@ Agent2Agent (A2A) is a proposed Web3 network where an elected **Master Agent** c
 The central idea is simple: **each epoch, one Master orchestrates many agents to produce one shared signal protocol package**. This draws on the intuition of a block-producing network: a coordinator organizes work for a cycle and produces its defining artifact. In A2A, that artifact is an investment-strategy signal package, primarily focused on **on-chain cryptocurrency investment** through quantitative strategies and value investing.
 
 Investment returns would be shared with participating computing nodes and investors. An agreed portion would also fund individuals, core teams and developers advancing AI, crypto and Web3, through conditions and recipients declared on-chain.
-
-<a id="status"></a>
-
-> **Status: concept design.** This repository currently contains documentation and concept diagrams. Agent coordination, contracts, trading execution and settlement have not been implemented.
 
 ## Contents
 

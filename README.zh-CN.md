@@ -5,7 +5,7 @@
 [English](README.md) | **简体中文**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-70dcd0?style=flat-square)](LICENSE)
-[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#status)
+[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#开发路线)
 [![Docs: EN / 中文](https://img.shields.io/badge/Docs-EN%20%2F%20%E4%B8%AD%E6%96%87-4c87c6?style=flat-square)](README.md)
 [![Contributions: Welcome](https://img.shields.io/badge/Contributions-Welcome-3ba776?style=flat-square)](#参与贡献)
 
@@ -15,10 +15,6 @@ Agent2Agent（A2A）是一个拟议的 Web3 协作网络：通过选举产生 **
 项目的核心机制是：**每个周期，一个 Master 调度多个 Agent，共同产出一份量化信号协议包。** 这一思路借鉴区块生产网络的直观概念：协调者组织一个周期内的工作，并产生该周期的核心产物。在 A2A 中，这份产物是本轮形成的投资策略信号包，主要面向**链上加密货币投资**，支持量化策略与价值投资。
 
 投资回报将按约定规则分配给参与计算和投资的节点，同时将约定份额用于支持推动 AI、加密技术与 Web3 发展的个人、核心团队和开发者，按照链上声明的资助对象与条件进行转账。
-
-<a id="status"></a>
-
-> **项目阶段：概念设计。** 当前仓库包含项目文档和概念图，尚未实现 Agent 调度网络、智能合约、交易执行或收益结算。
 
 ## 目录
 
