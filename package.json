@@ -1,0 +1,34 @@
+{
+  "name": "@a2a-source/agent2agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "tsc && node scripts/copy-assets.mjs",
+    "test": "tsx --test tests/*.test.ts",
+    "start": "tsx src/main.ts",
+    "demo": "tsx scripts/demo.ts",
+    "contracts:build": "tsx scripts/compile.ts",
+    "deploy": "tsx scripts/deploy.ts",
+    "init": "tsx scripts/init.ts",
+    "preflight": "tsx scripts/preflight.ts",
+    "metadata:upload": "tsx scripts/upload.ts",
+    "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" config/default.json package.json tsconfig.json"
+  },
+  "dependencies": {
+    "ethers": "^6.15.0",
+    "undici": "^7.30.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ganache": "^7.9.2",
+    "prettier": "^3.9.9",
+    "solc": "0.8.30",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

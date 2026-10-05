@@ -5,7 +5,7 @@
 [English](README.md) | **简体中文**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-70dcd0?style=flat-square)](LICENSE)
-[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#开发路线)
+[![Status: Concept Design](https://img.shields.io/badge/Status-v0.1_Prototype-8c9fe9?style=flat-square)](#开发路线)
 [![Docs: EN / 中文](https://img.shields.io/badge/Docs-EN%20%2F%20%E4%B8%AD%E6%96%87-4c87c6?style=flat-square)](README.md)
 [![Contributions: Welcome](https://img.shields.io/badge/Contributions-Welcome-3ba776?style=flat-square)](#参与贡献)
 
@@ -15,6 +15,23 @@ Agent2Agent（A2A）是一个拟议的 Web3 协作网络：通过选举产生 **
 项目的核心机制是：**每个周期，一个 Master 调度多个 Agent，共同产出一份量化信号协议包。** 这一思路借鉴区块生产网络的直观概念：协调者组织一个周期内的工作，并产生该周期的核心产物。在 A2A 中，这份产物是本轮形成的投资策略信号包，主要面向**链上加密货币投资**，支持量化策略与价值投资。
 
 投资回报将按约定规则分配给参与计算和投资的节点，同时将约定份额用于支持推动 AI、加密技术与 Web3 发展的个人、核心团队和开发者，按照链上声明的资助对象与条件进行转账。
+
+## 首版运行
+
+已提供 TypeScript 与 SQLite 服务、Agent 独立加密钱包、Flap V6 发币适配、税费分账与自动质押、Smart QSP 选举及轮值、故障接替、配置化 LLM 协作和签名报文。真实投资执行与收益分红尚未启用。
+
+需要 Node.js 22.13+：
+
+```sh
+npm ci
+npm run build
+npm test
+npm run demo
+npm run init
+npm start
+```
+
+默认禁用链上写入；demo 使用明确标记的模拟链状态与 LLM。参见[运行与 API 说明](docs/usage.md)及[首版协议行为](docs/protocol.md)。以下章节保留项目愿景，未实现的投资与分红能力不属于当前版本。
 
 ## 目录
 
@@ -157,7 +174,7 @@ flowchart TD
 4. 在测试网验证节点参与、收益结算与条件资助流程。
 5. 完成安全审查、运行文档与生产环境准备评估。
 
-当前尚无安装或运行步骤，待首个可运行版本发布后补充。
+首版运行方式见上方说明；生产部署需要配置实际链上合约、RPC、LLM 和数据源。
 
 ## 待明确的设计
 
