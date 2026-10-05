@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1160" viewBox="0 0 1440 1160" role="img" aria-labelledby="title desc">
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#142238"/></linearGradient>
+<linearGradient id="accent" x2="1" y2="1"><stop stop-color="#183f54"/><stop offset="1" stop-color="#202b4b"/></linearGradient>
+<marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="#70dcd0"/></marker>
+<marker id="purple" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="#a6b2ff"/></marker>
+<style>text{font-family:Arial,Helvetica,sans-serif} .edge{fill:none;stroke:#70dcd0;stroke-width:2;marker-end:url(#arrow)} .branch{fill:none;stroke:#497184;stroke-width:2} .return{fill:none;stroke:#a6b2ff;stroke-width:2;stroke-dasharray:7 6;marker-end:url(#purple)}</style>
+</defs><rect width="1440" height="1160" rx="24" fill="url(#bg)"/>
+<title id="title">Multi-agent collaboration, from epoch n to n + 1</title><desc id="desc">Master Agent dispatches six teams, each with multiple sub-agents. Team reports converge into validation and a QSP. The next epoch uses the previous output and refreshed portfolio, risk and market context. Team sizes and lifecycle rules are conceptual.</desc>
+<text x="48" y="48" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">AGENT2AGENT / AGENT TEAMS</text>
+<text x="48" y="98" font-size="32" fill="#f0f5ff" font-weight="700" text-anchor="start">Multi-agent collaboration, from epoch n to n + 1</text>
+<text x="48" y="132" font-size="18" fill="#a8b8ce" font-weight="400" text-anchor="start">Fan out tasks. Converge evidence. Produce a protocol. Carry context into the next round.</text>
+<rect x="550" y="174" width="340" height="105" rx="14" fill="url(#accent)" stroke="#57879b"/>
+<text x="720" y="202" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="middle">EPOCH n / ELECTED COORDINATOR</text>
+<text x="720" y="236" font-size="26" fill="#f0f5ff" font-weight="700" text-anchor="middle">Master Agent</text>
+<text x="720" y="261" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">Select nodes · assign team tasks</text>
+<text x="48" y="302" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">DISPATCH / ONE MASTER → MANY TEAMS → MANY AGENTS</text>
+<path d="M720 279V319" class="branch"/>
+<path d="M150 319H1290" class="branch"/>
+<path d="M150 319V348" class="edge"/>
+<rect x="53" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="150" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Market Team</text>
+<text x="150" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M150 420V447" class="branch"/>
+<path d="M101 447H199" class="branch"/>
+<path d="M101 447V465" class="edge"/>
+<rect x="57" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="101" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 01</text>
+<path d="M101 519V543" class="branch"/>
+<path d="M199 447V465" class="edge"/>
+<rect x="155" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="199" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 02</text>
+<path d="M199 519V543" class="branch"/>
+<path d="M101 543H199" class="branch"/>
+<path d="M150 543V562" class="edge"/>
+<rect x="53" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="150" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="150" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M150 626V672" class="branch"/>
+<path d="M378 319V348" class="edge"/>
+<rect x="281" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="378" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">News Team</text>
+<text x="378" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M378 420V447" class="branch"/>
+<path d="M329 447H427" class="branch"/>
+<path d="M329 447V465" class="edge"/>
+<rect x="285" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="329" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 03</text>
+<path d="M329 519V543" class="branch"/>
+<path d="M427 447V465" class="edge"/>
+<rect x="383" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="427" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 04</text>
+<path d="M427 519V543" class="branch"/>
+<path d="M329 543H427" class="branch"/>
+<path d="M378 543V562" class="edge"/>
+<rect x="281" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="378" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="378" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M378 626V672" class="branch"/>
+<path d="M606 319V348" class="edge"/>
+<rect x="509" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="606" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Data Team</text>
+<text x="606" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M606 420V447" class="branch"/>
+<path d="M557 447H655" class="branch"/>
+<path d="M557 447V465" class="edge"/>
+<rect x="513" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="557" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 05</text>
+<path d="M557 519V543" class="branch"/>
+<path d="M655 447V465" class="edge"/>
+<rect x="611" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="655" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 06</text>
+<path d="M655 519V543" class="branch"/>
+<path d="M557 543H655" class="branch"/>
+<path d="M606 543V562" class="edge"/>
+<rect x="509" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="606" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="606" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M606 626V672" class="branch"/>
+<path d="M834 319V348" class="edge"/>
+<rect x="737" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="834" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Investment Team</text>
+<text x="834" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M834 420V447" class="branch"/>
+<path d="M785 447H883" class="branch"/>
+<path d="M785 447V465" class="edge"/>
+<rect x="741" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="785" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 07</text>
+<path d="M785 519V543" class="branch"/>
+<path d="M883 447V465" class="edge"/>
+<rect x="839" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="883" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 08</text>
+<path d="M883 519V543" class="branch"/>
+<path d="M785 543H883" class="branch"/>
+<path d="M834 543V562" class="edge"/>
+<rect x="737" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="834" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="834" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M834 626V672" class="branch"/>
+<path d="M1062 319V348" class="edge"/>
+<rect x="965" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="1062" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Positions Team</text>
+<text x="1062" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M1062 420V447" class="branch"/>
+<path d="M1013 447H1111" class="branch"/>
+<path d="M1013 447V465" class="edge"/>
+<rect x="969" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1013" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 09</text>
+<path d="M1013 519V543" class="branch"/>
+<path d="M1111 447V465" class="edge"/>
+<rect x="1067" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1111" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 10</text>
+<path d="M1111 519V543" class="branch"/>
+<path d="M1013 543H1111" class="branch"/>
+<path d="M1062 543V562" class="edge"/>
+<rect x="965" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="1062" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="1062" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M1062 626V672" class="branch"/>
+<path d="M1290 319V348" class="edge"/>
+<rect x="1193" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="1290" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Risk Team</text>
+<text x="1290" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Specialist collaboration</text>
+<path d="M1290 420V447" class="branch"/>
+<path d="M1241 447H1339" class="branch"/>
+<path d="M1241 447V465" class="edge"/>
+<rect x="1197" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1241" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 11</text>
+<path d="M1241 519V543" class="branch"/>
+<path d="M1339 447V465" class="edge"/>
+<rect x="1295" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1339" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 12</text>
+<path d="M1339 519V543" class="branch"/>
+<path d="M1241 543H1339" class="branch"/>
+<path d="M1290 543V562" class="edge"/>
+<rect x="1193" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="1290" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">Team report</text>
+<text x="1290" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">Findings + evidence</text>
+<path d="M1290 626V672" class="branch"/>
+<text x="48" y="660" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">CONVERGE / TEAM REPORTS → ONE EPOCH OUTPUT</text>
+<path d="M150 672H1290" class="branch"/>
+<path d="M720 672V707" class="edge"/>
+<rect x="435" y="707" width="570" height="130" rx="18" fill="url(#accent)" stroke="#8895df"/>
+<text x="720" y="737" font-size="15" fill="#a6b2ff" font-weight="700" text-anchor="middle">MASTER / COLLECT → VALIDATE → SYNTHESIZE</text>
+<text x="720" y="777" font-size="22" fill="#f0f5ff" font-weight="700" text-anchor="middle">Epoch n · Quantitative Signal Protocol package</text>
+<text x="720" y="809" font-size="17" fill="#a8b8ce" font-weight="400" text-anchor="middle">Reports · investment views · trading signals · risk</text>
+<path d="M720 837V869" class="branch"/>
+<path d="M350 869H1110" class="branch"/>
+<path d="M350 869V894" class="edge"/>
+<path d="M1110 869V894" class="edge"/>
+<rect x="140" y="894" width="420" height="114" rx="14" fill="#182b38" stroke="#456776"/>
+<text x="350" y="923" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="middle">DECISION PATH</text>
+<text x="350" y="954" font-size="18" fill="#f0f5ff" font-weight="700" text-anchor="middle">On-chain crypto investment &amp; execution</text>
+<text x="350" y="983" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">Settle returns when available</text>
+<rect x="900" y="894" width="420" height="114" rx="14" fill="#222d4a" stroke="#8895df"/>
+<text x="1110" y="923" font-size="14" fill="#a6b2ff" font-weight="700" text-anchor="middle">ROUND TRANSITION / EPOCH n + 1</text>
+<text x="1110" y="954" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">Prior QSP + refreshed context</text>
+<text x="1110" y="983" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">Markets · positions · risk · eligible nodes</text>
+<path d="M1320 951H1405V226H896" class="return"/>
+<text x="1090" y="210" font-size="14" fill="#a6b2ff" font-weight="700" text-anchor="middle">NEXT ROUND / REPEAT</text>
+<text x="48" y="1057" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">TREE = TASK ORGANIZATION, NOT A NEW CONSENSUS HIERARCHY</text>
+<text x="48" y="1089" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="start">Two sub-agents per team are illustrative. Team size, verification, publication and failure rules remain open.</text>
+<text x="48" y="1120" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="start">Epoch transitions carry analytical context; they do not require all trades or settlements to finish.</text>
+</svg>

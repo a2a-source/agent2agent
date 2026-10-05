@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1160" viewBox="0 0 1440 1160" role="img" aria-labelledby="title desc">
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#142238"/></linearGradient>
+<linearGradient id="accent" x2="1" y2="1"><stop stop-color="#183f54"/><stop offset="1" stop-color="#202b4b"/></linearGradient>
+<marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="#70dcd0"/></marker>
+<marker id="purple" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0L7 3.5L0 7" fill="#a6b2ff"/></marker>
+<style>text{font-family:Arial,Helvetica,sans-serif} .edge{fill:none;stroke:#70dcd0;stroke-width:2;marker-end:url(#arrow)} .branch{fill:none;stroke:#497184;stroke-width:2} .return{fill:none;stroke:#a6b2ff;stroke-width:2;stroke-dasharray:7 6;marker-end:url(#purple)}</style>
+</defs><rect width="1440" height="1160" rx="24" fill="url(#bg)"/>
+<title id="title">多叉树协作：从本周期到下一周期</title><desc id="desc">主 Agent 调度六类团队，每类展开多个子 Agent；团队报告汇总验证后形成本轮量化信号协议包。下一轮结合上一轮产物及最新市场、持仓、风险状态继续协作。团队规模和生命周期规则为概念设计。</desc>
+<text x="48" y="48" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">AGENT2AGENT / AGENT TEAMS</text>
+<text x="48" y="98" font-size="32" fill="#f0f5ff" font-weight="700" text-anchor="start">多叉树协作：从本周期到下一周期</text>
+<text x="48" y="132" font-size="18" fill="#a8b8ce" font-weight="400" text-anchor="start">任务向下分派，证据向上汇聚，形成本轮协议，携带上下文进入下一轮。</text>
+<rect x="550" y="174" width="340" height="105" rx="14" fill="url(#accent)" stroke="#57879b"/>
+<text x="720" y="202" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="middle">周期 n / 通过选举产生的协调者</text>
+<text x="720" y="236" font-size="26" fill="#f0f5ff" font-weight="700" text-anchor="middle">Master Agent 主节点</text>
+<text x="720" y="261" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">筛选节点 · 分派团队任务</text>
+<text x="48" y="302" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">向下调度 / 一个 Master → 多个团队 → 多个 Agent</text>
+<path d="M720 279V319" class="branch"/>
+<path d="M150 319H1290" class="branch"/>
+<path d="M150 319V348" class="edge"/>
+<rect x="53" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="150" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">市场分析团队</text>
+<text x="150" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M150 420V447" class="branch"/>
+<path d="M101 447H199" class="branch"/>
+<path d="M101 447V465" class="edge"/>
+<rect x="57" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="101" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 01</text>
+<path d="M101 519V543" class="branch"/>
+<path d="M199 447V465" class="edge"/>
+<rect x="155" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="199" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 02</text>
+<path d="M199 519V543" class="branch"/>
+<path d="M101 543H199" class="branch"/>
+<path d="M150 543V562" class="edge"/>
+<rect x="53" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="150" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">市场团队报告</text>
+<text x="150" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M150 626V672" class="branch"/>
+<path d="M378 319V348" class="edge"/>
+<rect x="281" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="378" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">新闻分析团队</text>
+<text x="378" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M378 420V447" class="branch"/>
+<path d="M329 447H427" class="branch"/>
+<path d="M329 447V465" class="edge"/>
+<rect x="285" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="329" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 03</text>
+<path d="M329 519V543" class="branch"/>
+<path d="M427 447V465" class="edge"/>
+<rect x="383" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="427" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 04</text>
+<path d="M427 519V543" class="branch"/>
+<path d="M329 543H427" class="branch"/>
+<path d="M378 543V562" class="edge"/>
+<rect x="281" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="378" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">新闻团队报告</text>
+<text x="378" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M378 626V672" class="branch"/>
+<path d="M606 319V348" class="edge"/>
+<rect x="509" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="606" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">数据分析团队</text>
+<text x="606" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M606 420V447" class="branch"/>
+<path d="M557 447H655" class="branch"/>
+<path d="M557 447V465" class="edge"/>
+<rect x="513" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="557" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 05</text>
+<path d="M557 519V543" class="branch"/>
+<path d="M655 447V465" class="edge"/>
+<rect x="611" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="655" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 06</text>
+<path d="M655 519V543" class="branch"/>
+<path d="M557 543H655" class="branch"/>
+<path d="M606 543V562" class="edge"/>
+<rect x="509" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="606" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">数据团队报告</text>
+<text x="606" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M606 626V672" class="branch"/>
+<path d="M834 319V348" class="edge"/>
+<rect x="737" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="834" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">投资分析团队</text>
+<text x="834" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M834 420V447" class="branch"/>
+<path d="M785 447H883" class="branch"/>
+<path d="M785 447V465" class="edge"/>
+<rect x="741" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="785" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 07</text>
+<path d="M785 519V543" class="branch"/>
+<path d="M883 447V465" class="edge"/>
+<rect x="839" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="883" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 08</text>
+<path d="M883 519V543" class="branch"/>
+<path d="M785 543H883" class="branch"/>
+<path d="M834 543V562" class="edge"/>
+<rect x="737" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="834" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">投资团队报告</text>
+<text x="834" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M834 626V672" class="branch"/>
+<path d="M1062 319V348" class="edge"/>
+<rect x="965" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="1062" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">持仓分析团队</text>
+<text x="1062" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M1062 420V447" class="branch"/>
+<path d="M1013 447H1111" class="branch"/>
+<path d="M1013 447V465" class="edge"/>
+<rect x="969" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1013" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 09</text>
+<path d="M1013 519V543" class="branch"/>
+<path d="M1111 447V465" class="edge"/>
+<rect x="1067" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1111" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 10</text>
+<path d="M1111 519V543" class="branch"/>
+<path d="M1013 543H1111" class="branch"/>
+<path d="M1062 543V562" class="edge"/>
+<rect x="965" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="1062" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">持仓团队报告</text>
+<text x="1062" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M1062 626V672" class="branch"/>
+<path d="M1290 319V348" class="edge"/>
+<rect x="1193" y="348" width="194" height="72" rx="14" fill="#192940" stroke="#354960"/>
+<text x="1290" y="377" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">风险分析团队</text>
+<text x="1290" y="402" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">专业方向协作</text>
+<path d="M1290 420V447" class="branch"/>
+<path d="M1241 447H1339" class="branch"/>
+<path d="M1241 447V465" class="edge"/>
+<rect x="1197" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1241" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 11</text>
+<path d="M1241 519V543" class="branch"/>
+<path d="M1339 447V465" class="edge"/>
+<rect x="1295" y="465" width="88" height="54" rx="10" fill="#122339" stroke="#45718b"/>
+<text x="1339" y="498" font-size="15" fill="#d9f5f1" font-weight="700" text-anchor="middle">Agent 12</text>
+<path d="M1339 519V543" class="branch"/>
+<path d="M1241 543H1339" class="branch"/>
+<path d="M1290 543V562" class="edge"/>
+<rect x="1193" y="562" width="194" height="64" rx="10" fill="#19253d" stroke="#596686"/>
+<text x="1290" y="588" font-size="17" fill="#e2e5ff" font-weight="700" text-anchor="middle">风险团队报告</text>
+<text x="1290" y="611" font-size="14" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析结论 + 支撑证据</text>
+<path d="M1290 626V672" class="branch"/>
+<text x="48" y="660" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">向上汇总 / 多份团队报告 → 一份周期产物</text>
+<path d="M150 672H1290" class="branch"/>
+<path d="M720 672V707" class="edge"/>
+<rect x="435" y="707" width="570" height="130" rx="18" fill="url(#accent)" stroke="#8895df"/>
+<text x="720" y="737" font-size="15" fill="#a6b2ff" font-weight="700" text-anchor="middle">MASTER / 收集 → 验证 → 汇总</text>
+<text x="720" y="777" font-size="25" fill="#f0f5ff" font-weight="700" text-anchor="middle">周期 n · 量化信号协议包 QSP</text>
+<text x="720" y="809" font-size="17" fill="#a8b8ce" font-weight="400" text-anchor="middle">分析报告 · 投资判断 · 交易信号 · 风险评估</text>
+<path d="M720 837V869" class="branch"/>
+<path d="M350 869H1110" class="branch"/>
+<path d="M350 869V894" class="edge"/>
+<path d="M1110 869V894" class="edge"/>
+<rect x="140" y="894" width="420" height="114" rx="14" fill="#182b38" stroke="#456776"/>
+<text x="350" y="923" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="middle">投资决策路径</text>
+<text x="350" y="954" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">链上加密货币投资与执行</text>
+<text x="350" y="983" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">产生可分配收益时，再进行结算</text>
+<rect x="900" y="894" width="420" height="114" rx="14" fill="#222d4a" stroke="#8895df"/>
+<text x="1110" y="923" font-size="14" fill="#a6b2ff" font-weight="700" text-anchor="middle">周期转换 / 周期 n + 1</text>
+<text x="1110" y="954" font-size="20" fill="#f0f5ff" font-weight="700" text-anchor="middle">上一轮 QSP + 更新后的上下文</text>
+<text x="1110" y="983" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="middle">市场 · 持仓 · 风险 · 可用节点</text>
+<path d="M1320 951H1405V226H896" class="return"/>
+<text x="1090" y="210" font-size="14" fill="#a6b2ff" font-weight="700" text-anchor="middle">下一轮 / 重复协作</text>
+<text x="48" y="1057" font-size="14" fill="#70dcd0" font-weight="700" text-anchor="start">树状结构表示任务组织关系，非新增共识层级</text>
+<text x="48" y="1089" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="start">每个团队的两个子 Agent 仅为示例；团队规模、验证、发布与失败处理规则仍待设计。</text>
+<text x="48" y="1120" font-size="16" fill="#a8b8ce" font-weight="400" text-anchor="start">周期转换传递分析上下文，不要求所有交易或收益结算先完成。</text>
+</svg>

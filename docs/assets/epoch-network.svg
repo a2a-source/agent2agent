@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="870" viewBox="0 0 1440 870" role="img" aria-labelledby="title desc">
+<title id="title">Agent2Agent epoch coordination</title>
+<desc id="desc">An elected Master Agent coordinates six specialist Agent Teams each epoch. Their reports produce a Quantitative Signal Protocol package containing investment views, trading signals and risk assessments. Subsequent investment returns are shared with contributors and investors and support AI and Crypto builders.</desc>
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#142238"/></linearGradient>
+<linearGradient id="master" x2="1" y2="1"><stop stop-color="#173e59"/><stop offset="1" stop-color="#172743"/></linearGradient>
+<linearGradient id="protocol" x2="1" y2="1"><stop stop-color="#263557"/><stop offset="1" stop-color="#202341"/></linearGradient>
+<marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="#70dcd0"/></marker>
+<style>text{font-family:Arial,Helvetica,sans-serif} .white{fill:#f0f5ff} .muted{fill:#a8b8ce} .tiny{font-size:14px} .label{font-size:17px} .section{font-size:14px;letter-spacing:2px;font-weight:700;fill:#70dcd0} .line{fill:none;stroke:#70dcd0;stroke-width:2;marker-end:url(#arrow)}</style>
+</defs>
+<rect width="1440" height="870" rx="24" fill="url(#bg)"/>
+<text x="48" y="52" class="section">AGENT2AGENT / AI × CRYPTO × WEB3</text>
+<text x="48" y="103" class="white" font-size="38" font-weight="700">One epoch. Many agents. One signal package.</text>
+<text x="48" y="137" class="muted" font-size="18">Elect a coordinator → orchestrate specialist teams → publish a structured decision artifact</text>
+<rect x="1230" y="39" width="162" height="30" rx="15" fill="#213047"/>
+<text x="1311" y="59" text-anchor="middle" class="muted tiny">CONCEPT DESIGN</text>
+<text x="48" y="194" class="section">01 / COORDINATE</text>
+<text x="377" y="194" class="section">02 / ANALYZE TOGETHER</text>
+<text x="1062" y="194" class="section">03 / PRODUCE</text>
+<rect x="48" y="219" width="245" height="334" rx="20" fill="url(#master)" stroke="#45718b"/>
+<circle cx="171" cy="284" r="30" fill="#103747" stroke="#70dcd0" stroke-width="2"/>
+<path d="M158 284h26 M171 271v26" stroke="#70dcd0" stroke-width="3"/>
+<text x="171" y="344" text-anchor="middle" class="white" font-size="25" font-weight="700">Master Agent</text>
+<text x="171" y="375" text-anchor="middle" class="muted label">Elected coordinator</text>
+<path d="M78 404h185" stroke="#3d5876"/>
+<text x="78" y="440" class="white label">Select eligible nodes</text>
+<text x="78" y="470" class="white label">Dispatch team tasks</text>
+<text x="78" y="500" class="white label">Synthesize reports</text>
+<rect x="377" y="219" width="598" height="334" rx="20" fill="#101d30" stroke="#354960"/>
+<text x="399" y="250" class="muted tiny">AGENT TEAMS / AVAILABLE NODES WITH RESERVES ≥ 0.3 BNB</text>
+<path d="M293 389h79" class="line"/>
+<text x="332" y="373" text-anchor="middle" class="muted tiny">dispatch</text>
+<path d="M975 389h78" class="line"/>
+<text x="1014" y="373" text-anchor="middle" class="muted tiny">reports</text>
+<rect x="1062" y="219" width="330" height="334" rx="20" fill="url(#protocol)" stroke="#8895df"/>
+<text x="1086" y="254" fill="#b5baff" font-size="14" font-weight="700" letter-spacing="2">EPOCH n / QSP</text>
+<text x="1086" y="294" class="white" font-size="25" font-weight="700">Quantitative</text>
+<text x="1086" y="326" class="white" font-size="22" font-weight="700">Signal Protocol Package</text>
+<text x="1086" y="359" class="muted label">One structured epoch artifact</text>
+<path d="M1086 384h282" stroke="#4d567a"/>
+<text x="1086" y="418" class="white label">Analysis reports</text>
+<text x="1086" y="450" class="white label">Investment views &amp; signals</text>
+<text x="1086" y="482" class="white label">Position &amp; risk assessments</text>
+<text x="1086" y="524" class="muted tiny">Schema &amp; verification: to be designed</text>
+<rect x="399" y="272" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="294" r="4" fill="#70dcd0"/><circle cx="429" cy="294" r="4" fill="#8c9fe9"/><circle cx="441" cy="294" r="4" fill="#b8c9da"/><text x="457" y="300" class="white label" font-weight="700">Market Team</text><text x="415" y="331" class="muted tiny">Price &amp; liquidity</text><rect x="679" y="272" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="294" r="4" fill="#70dcd0"/><circle cx="709" cy="294" r="4" fill="#8c9fe9"/><circle cx="721" cy="294" r="4" fill="#b8c9da"/><text x="737" y="300" class="white label" font-weight="700">News Team</text><text x="695" y="331" class="muted tiny">Events &amp; sentiment</text><rect x="399" y="359" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="381" r="4" fill="#70dcd0"/><circle cx="429" cy="381" r="4" fill="#8c9fe9"/><circle cx="441" cy="381" r="4" fill="#b8c9da"/><text x="457" y="387" class="white label" font-weight="700">Data Team</text><text x="415" y="418" class="muted tiny">On-chain &amp; market data</text><rect x="679" y="359" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="381" r="4" fill="#70dcd0"/><circle cx="709" cy="381" r="4" fill="#8c9fe9"/><circle cx="721" cy="381" r="4" fill="#b8c9da"/><text x="737" y="387" class="white label" font-weight="700">Investment Team</text><text x="695" y="418" class="muted tiny">Value &amp; strategy</text><rect x="399" y="446" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="468" r="4" fill="#70dcd0"/><circle cx="429" cy="468" r="4" fill="#8c9fe9"/><circle cx="441" cy="468" r="4" fill="#b8c9da"/><text x="457" y="474" class="white label" font-weight="700">Positions Team</text><text x="415" y="505" class="muted tiny">Exposure &amp; portfolio risk</text><rect x="679" y="446" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="468" r="4" fill="#70dcd0"/><circle cx="709" cy="468" r="4" fill="#8c9fe9"/><circle cx="721" cy="468" r="4" fill="#b8c9da"/><text x="737" y="474" class="white label" font-weight="700">Risk Team</text><text x="695" y="505" class="muted tiny">Independent risk assessment</text>
+<rect x="48" y="582" width="1344" height="103" rx="16" fill="#132239" stroke="#354960"/>
+<text x="72" y="612" class="section">REPEAT EACH EPOCH</text>
+<text x="72" y="648" class="white" font-size="20">Coordination → analysis → protocol</text>
+<rect x="658" y="604" width="174" height="58" rx="10" fill="#1a2a42" stroke="#3c506c"/>
+<text x="745" y="629" text-anchor="middle" class="muted tiny">PREVIOUS EPOCH</text>
+<text x="745" y="650" text-anchor="middle" class="white label">QSP n − 1</text>
+<path d="M840 634h49" class="line"/>
+<rect x="901" y="604" width="174" height="58" rx="10" fill="#253653" stroke="#8c9fe9"/>
+<text x="988" y="629" text-anchor="middle" fill="#b5baff" font-size="14">CURRENT EPOCH</text>
+<text x="988" y="650" text-anchor="middle" class="white label">QSP n</text>
+<path d="M1083 634h49" class="line"/>
+<rect x="1144" y="604" width="222" height="58" rx="10" fill="#1a2a42" stroke="#3c506c"/>
+<text x="1255" y="629" text-anchor="middle" class="muted tiny">NEXT COORDINATION CYCLE</text>
+<text x="1255" y="650" text-anchor="middle" class="white label">QSP n + 1</text>
+<path d="M1227 553v24" class="line"/>
+<text x="48" y="726" class="section">FROM DECISIONS TO SHARED VALUE</text>
+<text x="48" y="766" class="white" font-size="20">Signals → on-chain crypto investment → returns</text>
+<path d="M616 758h66" class="line"/>
+<text x="704" y="749" class="white" font-size="18">Reward computing nodes &amp; investors</text>
+<text x="704" y="781" class="white" font-size="18">Fund AI × Crypto builders via declared on-chain conditions</text>
+<path d="M48 811h1344" stroke="#2e4058"/>
+<text x="48" y="842" class="muted tiny">Block-like analogy: one coordinated artifact per epoch. Consensus, execution and settlement rules remain open.</text>
+</svg>

@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="870" viewBox="0 0 1440 870" role="img" aria-labelledby="title desc">
+<title id="title">Agent2Agent 周期协作机制</title>
+<desc id="desc">主 Agent 每周期组织六类 Agent Teams，汇总报告并产出量化信号协议包；投资回报用于节点分红及 AI 与加密技术生态资助。</desc>
+<defs>
+<linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0b1224"/><stop offset="1" stop-color="#142238"/></linearGradient>
+<linearGradient id="master" x2="1" y2="1"><stop stop-color="#173e59"/><stop offset="1" stop-color="#172743"/></linearGradient>
+<linearGradient id="protocol" x2="1" y2="1"><stop stop-color="#263557"/><stop offset="1" stop-color="#202341"/></linearGradient>
+<marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M0 0 L7 3.5 L0 7" fill="#70dcd0"/></marker>
+<style>text{font-family:Arial,Helvetica,sans-serif} .white{fill:#f0f5ff} .muted{fill:#a8b8ce} .tiny{font-size:14px} .label{font-size:17px} .section{font-size:14px;letter-spacing:2px;font-weight:700;fill:#70dcd0} .line{fill:none;stroke:#70dcd0;stroke-width:2;marker-end:url(#arrow)}</style>
+</defs>
+<rect width="1440" height="870" rx="24" fill="url(#bg)"/>
+<text x="48" y="52" class="section">AGENT2AGENT / AI × CRYPTO × WEB3</text>
+<text x="48" y="103" class="white" font-size="38" font-weight="700">一个周期 · 多 Agent 协作 · 一份量化信号协议包</text>
+<text x="48" y="137" class="muted" font-size="18">选举主 Agent → 调度专业团队 → 汇总报告，产出本周期量化信号协议包</text>
+<rect x="1230" y="39" width="162" height="30" rx="15" fill="#213047"/>
+<text x="1311" y="59" text-anchor="middle" class="muted tiny">概念设计</text>
+<text x="48" y="194" class="section">01 / 主节点协调</text>
+<text x="377" y="194" class="section">02 / 多团队协作分析</text>
+<text x="1062" y="194" class="section">03 / 周期产出</text>
+<rect x="48" y="219" width="245" height="334" rx="20" fill="url(#master)" stroke="#45718b"/>
+<circle cx="171" cy="284" r="30" fill="#103747" stroke="#70dcd0" stroke-width="2"/>
+<path d="M158 284h26 M171 271v26" stroke="#70dcd0" stroke-width="3"/>
+<text x="171" y="344" text-anchor="middle" class="white" font-size="20" font-weight="700">Master Agent 主节点</text>
+<text x="171" y="375" text-anchor="middle" class="muted label">通过选举产生的协调者</text>
+<path d="M78 404h185" stroke="#3d5876"/>
+<text x="78" y="440" class="white label">筛选符合条件的节点</text>
+<text x="78" y="470" class="white label">调度团队与分派任务</text>
+<text x="78" y="500" class="white label">汇总各团队分析报告</text>
+<rect x="377" y="219" width="598" height="334" rx="20" fill="#101d30" stroke="#354960"/>
+<text x="399" y="250" class="muted tiny">AGENT TEAMS / 可用且储备金额 ≥ 0.3 BNB 的节点</text>
+<path d="M293 389h79" class="line"/>
+<text x="332" y="373" text-anchor="middle" class="muted tiny">调度</text>
+<path d="M975 389h78" class="line"/>
+<text x="1014" y="373" text-anchor="middle" class="muted tiny">报告</text>
+<rect x="1062" y="219" width="330" height="334" rx="20" fill="url(#protocol)" stroke="#8895df"/>
+<text x="1086" y="254" fill="#b5baff" font-size="14" font-weight="700" letter-spacing="2">周期 n / QSP</text>
+<text x="1086" y="294" class="white" font-size="25" font-weight="700">量化信号</text>
+<text x="1086" y="326" class="white" font-size="25" font-weight="700">协议包</text>
+<text x="1086" y="359" class="muted label">本周期的结构化协作产物</text>
+<path d="M1086 384h282" stroke="#4d567a"/>
+<text x="1086" y="418" class="white label">各维度分析报告</text>
+<text x="1086" y="450" class="white label">投资判断与量化交易信号</text>
+<text x="1086" y="482" class="white label">持仓与风险评估</text>
+<text x="1086" y="524" class="muted tiny">协议格式与验证方式：待设计</text>
+<rect x="399" y="272" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="294" r="4" fill="#70dcd0"/><circle cx="429" cy="294" r="4" fill="#8c9fe9"/><circle cx="441" cy="294" r="4" fill="#b8c9da"/><text x="457" y="300" class="white label" font-weight="700">市场团队</text><text x="415" y="331" class="muted tiny">价格与流动性</text><rect x="679" y="272" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="294" r="4" fill="#70dcd0"/><circle cx="709" cy="294" r="4" fill="#8c9fe9"/><circle cx="721" cy="294" r="4" fill="#b8c9da"/><text x="737" y="300" class="white label" font-weight="700">新闻团队</text><text x="695" y="331" class="muted tiny">事件、叙事与情绪</text><rect x="399" y="359" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="381" r="4" fill="#70dcd0"/><circle cx="429" cy="381" r="4" fill="#8c9fe9"/><circle cx="441" cy="381" r="4" fill="#b8c9da"/><text x="457" y="387" class="white label" font-weight="700">数据团队</text><text x="415" y="418" class="muted tiny">链上与市场数据</text><rect x="679" y="359" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="381" r="4" fill="#70dcd0"/><circle cx="709" cy="381" r="4" fill="#8c9fe9"/><circle cx="721" cy="381" r="4" fill="#b8c9da"/><text x="737" y="387" class="white label" font-weight="700">投资团队</text><text x="695" y="418" class="muted tiny">投资价值与策略评估</text><rect x="399" y="446" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="417" cy="468" r="4" fill="#70dcd0"/><circle cx="429" cy="468" r="4" fill="#8c9fe9"/><circle cx="441" cy="468" r="4" fill="#b8c9da"/><text x="457" y="474" class="white label" font-weight="700">持仓团队</text><text x="415" y="505" class="muted tiny">持仓敞口与组合风险</text><rect x="679" y="446" width="274" height="77" rx="10" fill="#192940" stroke="#30465e"/><circle cx="697" cy="468" r="4" fill="#70dcd0"/><circle cx="709" cy="468" r="4" fill="#8c9fe9"/><circle cx="721" cy="468" r="4" fill="#b8c9da"/><text x="737" y="474" class="white label" font-weight="700">风险团队</text><text x="695" y="505" class="muted tiny">独立风险评估</text>
+<rect x="48" y="582" width="1344" height="103" rx="16" fill="#132239" stroke="#354960"/>
+<text x="72" y="612" class="section">逐周期重复协作</text>
+<text x="72" y="648" class="white" font-size="20">组织调度 → 协作分析 → 协议产出</text>
+<rect x="658" y="604" width="174" height="58" rx="10" fill="#1a2a42" stroke="#3c506c"/>
+<text x="745" y="629" text-anchor="middle" class="muted tiny">上一周期</text>
+<text x="745" y="650" text-anchor="middle" class="white label">QSP n − 1</text>
+<path d="M840 634h49" class="line"/>
+<rect x="901" y="604" width="174" height="58" rx="10" fill="#253653" stroke="#8c9fe9"/>
+<text x="988" y="629" text-anchor="middle" fill="#b5baff" font-size="14">当前周期</text>
+<text x="988" y="650" text-anchor="middle" class="white label">QSP n</text>
+<path d="M1083 634h49" class="line"/>
+<rect x="1144" y="604" width="222" height="58" rx="10" fill="#1a2a42" stroke="#3c506c"/>
+<text x="1255" y="629" text-anchor="middle" class="muted tiny">下一轮周期协作</text>
+<text x="1255" y="650" text-anchor="middle" class="white label">QSP n + 1</text>
+<path d="M1227 553v24" class="line"/>
+<text x="48" y="726" class="section">从投资决策到价值分配</text>
+<text x="48" y="766" class="white" font-size="20">量化信号 → 链上加密货币投资 → 可分配收益</text>
+<path d="M616 758h66" class="line"/>
+<text x="704" y="749" class="white" font-size="18">参与计算与投资的节点获得回报</text>
+<text x="704" y="781" class="white" font-size="18">按链上声明的条件资助 AI × Crypto 个人、团队与开发者</text>
+<path d="M48 811h1344" stroke="#2e4058"/>
+<text x="48" y="842" class="muted tiny">类似区块的周期产出概念：每周期一份协作产物；共识、交易执行与结算规则仍待设计。</text>
+</svg>
