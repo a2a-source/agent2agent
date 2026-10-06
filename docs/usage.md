@@ -56,7 +56,15 @@ A2A_CONFIG=config/local.json npm run preflight
 npm run contracts:build
 ```
 
-`preflight` only reads the chain ID, block and configured contract code. It does not establish that a contract is audited, immutable or economically correct.
+`preflight` only reads the chain ID, a confirmed block and configured contract code. All code is read at the same confirmation-depth snapshot; a changed block hash rejects the result. It lists missing contract configuration and reports `complete: false` for a partial setup. For automated integration checks, require all four contract addresses and deployed code:
+
+```sh
+A2A_CONFIG=config/local.json npm run preflight -- --require-complete
+```
+
+Strict mode exits nonzero if any required contract is missing. `complete: true` means only that configured contracts have code on the expected chain; it does not establish ABI compatibility, correct receivers, supported Flap versions, available funding, an audited contract or launch readiness. The launch adapter performs additional checks during execution. RPC failures are reported without printing endpoint credentials.
+
+Start a local override with `cp config/example.json config/local.json`, then replace the `.invalid` URL placeholders and fill in verified contract addresses. The example keeps chain writes disabled and contains no credentials. Set `fromBlock` to your earliest required activity before enabling indexing.
 
 `npm run deploy` deploys the A2A stake contract and splitter factory using the operator wallet. This command spends real funds on the configured network. It requires `chain.writesEnabled=true` and an operator key. Deployment prints addresses to add to local configuration. There is no automatic mainnet deployment at startup.
 

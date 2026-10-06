@@ -1,0 +1,17 @@
+{
+  "chain": {
+    "id": 56,
+    "rpcUrl": "https://YOUR_BSC_RPC_ENDPOINT.invalid",
+    "writesEnabled": false,
+    "confirmations": 12,
+    "fromBlock": 0,
+    "stakeAddress": "",
+    "factoryAddress": "",
+    "flapPortal": "",
+    "flapImplementation": ""
+  },
+  "llm": {
+    "endpoint": "https://YOUR_LLM_ENDPOINT.invalid/v1",
+    "model": "YOUR_MODEL"
+  }
+}
