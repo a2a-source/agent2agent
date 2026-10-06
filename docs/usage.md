@@ -23,7 +23,7 @@ The default API listens on `127.0.0.1:3000`, with chain writes disabled. Protect
 
 ## Configuration
 
-`config/default.json` contains the supported defaults. Set `A2A_CONFIG` to a JSON override file, such as the Git-ignored `config/local.json`. Top-level fields replace defaults; `chain`, `network` and `llm` merge their fields. A custom `roles` array replaces the entire default array. Role IDs must be unique.
+`config/default.json` contains the supported defaults. Set `A2A_CONFIG` to a JSON override file, such as the Git-ignored `config/local.json`. Top-level fields replace defaults; `chain`, `network`, `llm` and `recovery` merge their fields. A custom `roles` array replaces the entire default array. Role IDs must be unique.
 
 | Environment variable | Purpose |
 | --- | --- |
@@ -133,10 +133,44 @@ Use one service process per SQLite database. Durable signing locks additionally 
 
 Back up SQLite using SQLite's backup facility or after a clean shutdown; copying only the main file while WAL writes are active is insufficient. Keep keys and database backups separate. Runtime recovery retries the exact signed transaction bytes and reconciles receipts. Insufficient Gas, reverted transactions and provider outages do not authorize a new spend with a guessed nonce.
 
-A confirmed-cursor block hash change marks chain state unknown and requires operator reconciliation; this version does not automatically reverse already-consumed compute credit after a deep reorganization. There is no production monitoring service, remote worker transport, independent-validator consensus, or audited mainnet deployment bundled with v0.1. Smart QSP and all Agent keys remain under one operator's custody.
+A confirmed-cursor block hash change automatically freezes affected compute spending and qualification, then starts a durable paginated canonical-log scan. Completion atomically reconciles tax credits, retains actual LLM costs and pending holds, and restores sync status. If orphaned income has already been consumed, the compute balance may become negative; future valid credits clear that debt. The guarantee is never used to cover it. There is no production monitoring service, remote worker transport, independent-validator consensus, or audited mainnet deployment bundled with v0.1. Smart QSP and all Agent keys remain under one operator's custody.
 
 See [the implemented protocol](protocol.md) for election, failover and penalties. `npm test` covers SQLite recovery, authenticated ownership, RPC transaction recovery, hosted LLM calls, signed QSP production and local contract behavior. Real provider credentials and a configured network are needed for deployment-specific validation.
 
 For a runtime-only deployment, build first in the development environment, retain `dist/`, and install with `npm ci --omit=dev`. Start with `node dist/src/main.js`. Initialize credentials with `node dist/scripts/init.js` if needed. Solidity compilation and deployment helpers require the development tooling and should run in a separate operator environment.
 
 The Ganache development fixture currently bundles dependencies with npm audit advisories, including high and critical findings. These packages are excluded by a clean `--omit=dev` installation; do not expose the test EVM or copy the development `node_modules` tree into production. The full dependency audit is not clean.
+
+
+## Autonomous recovery
+
+The `recovery` configuration bounds normal recovery work. Research runs with `researchConcurrency` parallel tasks and at most `researchMaxAttempts` attempts per role/view. Master assignments must balance work across the available elected Workers; an invalid distribution is replaced by the published deterministic round-robin rule, with an audit record. Each role call includes its Agent identity. Retries stay inside the frozen committee, preserve uncertain provider charges, and reuse completed work only when its author, input and source remain valid. Changed inputs in an already-used attempt require a successor view rather than silently reusing old synthesis.
+
+Provider failures open a persisted circuit after repeated errors. Cooldown probes and subsequent bounded calls automatically test recovery. A missing `/models` discovery endpoint permits a bounded real-call probe; an unavailable data source remains explicitly missing. Whole-round timeout is not proof of Master misconduct. Repeated invalid task output can trigger operational quarantine; after its cooldown, fresh chain/budget/provider and wallet-signature health checks permit automatic recovery. Conflicting-signature isolation is stronger and cannot be downgraded by ordinary task failures or a simple cooldown.
+
+Transaction recovery persists retry timing, intent, nonce, signed bytes and replacement hashes. Exact-byte replay uses capped attempts per cooldown window. Optional fee bumps use the same nonce, recipient, data and value; `maxGasPriceWei` caps replacement pricing and `maxFeeBumps` caps lifetime fee increases. Reverted business intents can consume another nonce only under the configured logical-attempt cap, sufficient confirmations, exclusive sender ownership and a caller-specific proof that the same intended operation remains unperformed. Arbitrary external nonce use or an unprovable chain state never authorizes a guessed new spend. Status and safe diagnostic codes remain in the SQLite transaction records.
+
+A reorganization scan processes at most `scanPagesPerTick` pages of up to 1,000 blocks each per pass and resumes after restart. Configure `chain.fromBlock` accurately before initial ingestion. Changing it after credits have been indexed can change the reconciliation range; treat such changes as an accounting migration rather than a performance tweak. The configured RPC must provide the necessary historical blocks and logs. Unavailable evidence pauses the affected activity and is retried; it is not converted to a successful reconciliation.
+
+### Key rotation and verified snapshots
+
+By default, periodic maintenance uses the original RSA configuration, creates a verified SQLite snapshot in `var/backups` daily, and retains 30 matching snapshots. `recovery.walletBatchSize`, `backupDirectory`, `backupIntervalMs` and `maxBackups` configure this behavior. Rotation and backup failures are persisted and retried; one failure does not grant permission to discard wallet data. Retention runs only after a new verified backup succeeds and does not remove unrelated files or symlinks.
+
+For key rotation, place a local keyring file under the Git-ignored `var/keys/` directory. It is an array of file references, for example:
+
+```json
+[
+  {"id":"v1","publicKeyPath":"var/keys/public.pem","privateKeyPath":"var/keys/private.pem"},
+  {"id":"v2","publicKeyPath":"var/keys/public-v2.pem","privateKeyPath":"var/keys/private-v2.pem"}
+]
+```
+
+Set `rsaKeyRingFile` to that local file and `rsaKeyId` to the new active key. Startup validates matching RSA key pairs. Maintenance verifies and re-encrypts wallet records in atomic batches; ciphertext key IDs make interruption/restart resumable. Keep historical key files separately from database snapshots, including while older snapshots are retained. No private key is sent to an LLM or included in API responses.
+
+Restore to a **new, absent destination** with:
+
+```sh
+A2A_CONFIG=config/local.json npm run wallet:restore -- var/backups/SNAPSHOT.sqlite var/restored.sqlite
+```
+
+Restore takes a consistent SQLite snapshot, including committed source WAL data, verifies database integrity, Agent-to-wallet bindings and wallet signatures, and refuses to overwrite any destination database/WAL/SHM files. Restoration is an explicit disaster-recovery operation, not automatic replacement of a live database: an old snapshot cannot prove that newer externally published outputs or transaction intentions never existed. Ordinary task, RPC, funding and index recovery do not require this operation. Missing all key copies or all valid snapshots is not recoverable by protocol inference.

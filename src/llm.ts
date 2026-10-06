@@ -2,6 +2,7 @@ import { networkFetch as fetch } from "./network.js";
 import { Store } from "./store.js";
 import { Budget } from "./budget.js";
 import { hash } from "./protocol.js";
+import { classifyResearchFailure } from "./tasks.js";
 import { readJson } from "./http.js";
 import type { Config } from "./config.js";
 export class Llm {
@@ -11,6 +12,77 @@ export class Llm {
     readonly config: Config["llm"],
     private apiKey: string,
   ) {}
+  private probing?: Promise<boolean>;
+  private providerKey() {
+    return hash({ endpoint: this.config.endpoint, model: this.config.model });
+  }
+  private async waitForProbe(probe: Promise<boolean>, signal?: AbortSignal) {
+    if (!signal) return probe;
+    if (signal.aborted) throw signal.reason;
+    let abort: () => void = () => {};
+    const aborted = new Promise<never>((_, reject) => {
+      abort = () => reject(signal.reason);
+      signal.addEventListener("abort", abort, { once: true });
+    });
+    try {
+      return await Promise.race([probe, aborted]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+  async probeProvider(
+    now = Date.now(),
+    signal?: AbortSignal,
+  ): Promise<boolean> {
+    const state = this.db.get<{ failures: number; retryAt: number }>(
+      "provider-circuit",
+      this.providerKey(),
+    );
+    if (!state || state.failures < 2) return true;
+    if (now < state.retryAt) return false;
+    if (this.probing) return this.waitForProbe(this.probing, signal);
+    this.probing = (async () => {
+      try {
+        const response = await fetch(
+          this.config.endpoint.replace(/\/$/, "") + "/models",
+          {
+            headers: { authorization: `Bearer ${this.apiKey}` },
+            signal: AbortSignal.any([
+              AbortSignal.timeout(this.config.timeoutMs),
+              ...(signal ? [signal] : []),
+            ]),
+          },
+        );
+        // Compatible providers need not implement model discovery. A bounded
+        // next paid task is the half-open probe when discovery is unsupported.
+        if (response.status === 404 || response.status === 405) {
+          await response.body?.cancel();
+          this.db.put("provider-circuit", this.providerKey(), {
+            failures: 1,
+            retryAt: 0,
+          });
+          return true;
+        }
+        if (!response.ok) throw Error("provider probe rejected");
+        await response.body?.cancel();
+        this.db.put("provider-circuit", this.providerKey(), {
+          failures: 0,
+          retryAt: 0,
+        });
+        return true;
+      } catch {
+        if (signal?.aborted) return false;
+        this.db.put("provider-circuit", this.providerKey(), {
+          failures: state.failures,
+          retryAt: Date.now() + Math.min(60000, this.config.timeoutMs),
+        });
+        return false;
+      } finally {
+        this.probing = undefined;
+      }
+    })();
+    return this.waitForProbe(this.probing, signal);
+  }
   maximum() {
     const c = this.config;
     return (
@@ -45,6 +117,10 @@ export class Llm {
       if (cached.status === "DONE") return cached.result;
       throw Error("uncertain LLM call requires reconciliation");
     }
+    if (signal?.aborted) throw signal.reason;
+    const providerReady = await this.probeProvider(Date.now(), signal);
+    if (signal?.aborted) throw signal.reason;
+    if (!providerReady) throw Error("provider circuit open");
     this.db.transaction(() => {
       this.budget.reserve(agent, id, this.maximum());
       this.db.insert("llm-call", id, {
@@ -99,6 +175,10 @@ export class Llm {
       // Known billed usage is settled even if the model returned malformed JSON.
       this.budget.settle(id, actual);
       const result = JSON.parse(content);
+      this.db.put("provider-circuit", this.providerKey(), {
+        failures: 0,
+        retryAt: 0,
+      });
       this.db.put("llm-call", id, {
         id,
         agent,
@@ -110,12 +190,25 @@ export class Llm {
       });
       return result;
     } catch (e) {
+      const failure = classifyResearchFailure(e);
+      if (failure === "PROVIDER") {
+        const prior = this.db.get<{ failures: number }>(
+          "provider-circuit",
+          this.providerKey(),
+        );
+        const failures = (prior?.failures ?? 0) + 1;
+        this.db.put("provider-circuit", this.providerKey(), {
+          failures,
+          retryAt: Date.now() + Math.min(60000, c.timeoutMs),
+        });
+      }
       this.budget.unknown(id);
       this.db.put("llm-call", id, {
         id,
         agent,
         requestHash,
         status: "UNKNOWN",
+        failure,
         error: e instanceof Error ? e.message : "LLM failed",
       });
       throw e;

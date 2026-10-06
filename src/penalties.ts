@@ -10,17 +10,34 @@ export class Penalties {
     readonly failureLimit: number,
     readonly jailMs: number,
   ) {}
-  failure(id: string, agent: string, now = Date.now()) {
-    this.epochs.incident(id, agent, "PLATFORM_TIMEOUT", now);
+  failure(
+    id: string,
+    agent: string,
+    now = Date.now(),
+    reason = "PLATFORM_TIMEOUT",
+  ) {
+    this.epochs.incident(id, agent, reason, now);
+    const releasedAt =
+      this.agents.db.get<{ releasedAt?: number }>("quarantine", agent)
+        ?.releasedAt ?? 0;
     const recent = this.agents.db
       .all<any>("incident")
       .filter(
         (x) =>
           x.agent === agent &&
-          x.reason === "PLATFORM_TIMEOUT" &&
-          x.at > now - 86400000,
+          ["PLATFORM_TIMEOUT", "INVALID_OUTPUT"].includes(x.reason) &&
+          x.at > Math.max(now - 86400000, releasedAt),
       );
     if (recent.length >= this.failureLimit) {
+      const quarantine = this.agents.db.get<{ reason: string }>(
+        "quarantine",
+        agent,
+      );
+      if (
+        quarantine?.reason &&
+        quarantine.reason !== "REPEATED_PLATFORM_FAILURE"
+      )
+        return;
       this.agents.update(agent, { jailed: true });
       this.agents.db.put("quarantine", agent, {
         agent,
@@ -28,6 +45,57 @@ export class Penalties {
         until: now + this.jailMs,
         financialPenalty: "0",
       });
+    }
+  }
+  observeResearch(now = Date.now()) {
+    for (const attempt of this.agents.db.all<{
+      id: string;
+      agent: string;
+      status: string;
+      failure?: string;
+    }>("research-attempt")) {
+      if (attempt.status !== "FAILED" || attempt.failure !== "INVALID_OUTPUT")
+        continue;
+      const id = `research:${attempt.id}`;
+      if (!this.agents.db.get("incident", id))
+        this.failure(id, attempt.agent, now, "INVALID_OUTPUT");
+    }
+  }
+  async recoverOperational(
+    healthy: (agent: string) => Promise<boolean>,
+    now = Date.now(),
+  ) {
+    for (const record of this.agents.db.all<{
+      agent: string;
+      reason: string;
+      until: number | null;
+    }>("quarantine")) {
+      if (
+        record.reason !== "REPEATED_PLATFORM_FAILURE" ||
+        record.until === null ||
+        now < record.until
+      )
+        continue;
+      try {
+        if (!(await healthy(record.agent))) continue;
+        this.agents.db.transaction(() => {
+          const live = this.agents.db.get<typeof record>(
+            "quarantine",
+            record.agent,
+          );
+          if (live?.reason !== record.reason || live.until !== record.until)
+            return;
+          this.agents.update(record.agent, { jailed: false });
+          this.agents.db.put("quarantine", record.agent, {
+            agent: record.agent,
+            releasedAt: now,
+            automatic: true,
+            financialPenalty: "0",
+          });
+        });
+      } catch {
+        /* Failed health proofs are probed on the next maintenance pass. */
+      }
     }
   }
   evidence(

@@ -25,6 +25,18 @@ export class Store {
       .all(kind)
       .map((r) => JSON.parse(r.data as string));
   }
+  entries<T>(kind: string): { id: string; data: T }[] {
+    return this.sql
+      .prepare("SELECT id,data FROM records WHERE kind=? ORDER BY id")
+      .all(kind)
+      .map((row) => ({
+        id: row.id as string,
+        data: JSON.parse(row.data as string),
+      }));
+  }
+  remove(kind: string, id: string) {
+    this.sql.prepare("DELETE FROM records WHERE kind=? AND id=?").run(kind, id);
+  }
   put(kind: string, id: string, data: unknown) {
     this.sql
       .prepare(

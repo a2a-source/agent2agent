@@ -1,6 +1,7 @@
-import { Contract, Interface } from "ethers";
+import { Contract, Interface, Transaction } from "ethers";
 import { Agents } from "./agents.js";
 import { Budget } from "./budget.js";
+import { TaxSync } from "./tax-sync.js";
 import { Journal, type TxRecord } from "./chain.js";
 import { stakeDeficit } from "./money.js";
 import type { EncryptedWallet } from "./wallet.js";
@@ -11,7 +12,6 @@ export const STAKE_ABI = [
   "function requestExit()",
   "function withdraw()",
 ];
-const SPLIT_ABI = ["event PlatformPaid(uint256 amount,uint256 compute)"];
 export interface ChainState {
   balance: string;
   bonded: string;
@@ -30,6 +30,7 @@ export class Watcher {
     readonly confirmations: number,
     readonly fromBlock: number,
     readonly gasReserve: bigint,
+    readonly scanPagesPerTick = 4,
   ) {}
   async tick(now = Date.now()) {
     const p = this.journal.provider;
@@ -39,51 +40,36 @@ export class Watcher {
     if (height < 0) return;
     const block = await p.getBlock(height);
     if (!block?.hash) throw Error("confirmed block unavailable");
-    const stake = new Contract(this.stakeAddress, STAKE_ABI, p),
-      iface = new Interface(SPLIT_ABI);
+    const stake = new Contract(this.stakeAddress, STAKE_ABI, p);
+    const sync = new TaxSync(
+      this.agents,
+      this.budget,
+      this.journal,
+      this.fromBlock,
+      this.scanPagesPerTick,
+    );
     for (const a of this.agents.list()) {
       try {
-        const cursor = this.agents.db.get<{ height: number; hash: string }>(
-          "cursor",
-          a.id,
+        if (!(await sync.sync(a, { height, hash: block.hash }))) continue;
+        const launch = this.agents.db.get<TxRecord>(
+          "transaction",
+          `launch:${a.id}`,
         );
-        if (cursor && (await p.getBlock(cursor.height))?.hash !== cursor.hash)
-          throw Error("chain reorganization requires reconciliation");
-        if (a.splitter) {
-          let start = cursor ? cursor.height + 1 : this.fromBlock;
-          while (start <= height) {
-            const end = Math.min(start + 999, height),
-              logs = await p.getLogs({
-                address: a.splitter,
-                fromBlock: start,
-                toBlock: end,
-                topics: [iface.getEvent("PlatformPaid")!.topicHash],
-              });
-            const endBlock = await p.getBlock(end);
-            if (!endBlock?.hash) throw Error("missing log checkpoint");
-            this.agents.db.transaction(() => {
-              for (const l of logs) {
-                if (l.removed) throw Error("removed log");
-                const decoded = iface.parseLog(l)!;
-                this.budget.credit(
-                  a.id,
-                  `${this.journal.chainId}:${l.transactionHash}:${l.index}`,
-                  decoded.args.compute,
-                );
-              }
-              this.agents.db.put("cursor", a.id, {
-                height: end,
-                hash: endBlock.hash,
-              });
-            });
-            start = end + 1;
-          }
-        }
+        if (
+          a.launch === "CONFIRMED" &&
+          launch &&
+          (launch.state !== "CONFIRMED" ||
+            launch.block === undefined ||
+            launch.block > height)
+        )
+          throw Error("launch confirmation unavailable");
         const [balance, bonded, exit] = await Promise.all([
           p.getBalance(a.wallet, height),
           stake.getFunction("bonded")(a.wallet, { blockTag: height }),
           stake.getFunction("exits")(a.wallet, { blockTag: height }),
         ]);
+        if ((await p.getBlock(height))?.hash !== block.hash)
+          throw Error("balance snapshot changed");
         const state: ChainState = {
           balance: String(balance),
           bonded: String(bonded),
@@ -111,9 +97,26 @@ export class Watcher {
           (previous.block === undefined || previous.block > height)
         )
           continue;
-        if (previous && previous.state !== "READY") {
+        if (previous?.state === "CONFIRMED") {
           round++;
           this.agents.db.put("stake-round", a.id, { sequence: round });
+          previous = undefined;
+        }
+        if (
+          previous?.state === "READY" &&
+          a.autoStake &&
+          !a.jailed &&
+          this.journal.enabled
+        ) {
+          const tx = Transaction.from(previous.raw),
+            record = this.agents.db.get<EncryptedWallet>("wallet", a.id)!;
+          await this.journal.send(
+            previous.id,
+            a.wallet,
+            () => this.agents.vault.withWallet(record, (w) => w),
+            { to: tx.to, value: tx.value, data: tx.data },
+          );
+          continue;
         }
         const deficit = stakeDeficit(
           balance,
@@ -139,10 +142,25 @@ export class Watcher {
               value: deficit,
               data: stake.interface.encodeFunctionData("deposit"),
             },
+            {
+              confirmations: this.confirmations,
+              safeRetry: async () => {
+                const [currentBonded, currentExit] = await Promise.all([
+                  stake.getFunction("bonded")(a.wallet),
+                  stake.getFunction("exits")(a.wallet),
+                ]);
+                return (
+                  currentBonded === bonded &&
+                  currentExit[0] === 0n &&
+                  this.agents.get(a.id).autoStake
+                );
+              },
+            },
           );
           await this.journal.confirmed(id, this.confirmations);
         }
       } catch (e) {
+        this.budget.setChainSync(a.id, true);
         const old = this.agents.db.get<ChainState>("chain-state", a.id);
         this.agents.db.put("chain-state", a.id, {
           ...old,
@@ -151,7 +169,7 @@ export class Watcher {
         });
         this.agents.db.put("chain-error", a.id, {
           at: now,
-          message: e instanceof Error ? e.message : "chain error",
+          message: "CHAIN_SYNC_OR_OPERATION_PENDING",
         });
       }
     }

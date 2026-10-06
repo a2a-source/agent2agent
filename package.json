@@ -16,7 +16,8 @@
     "init": "tsx scripts/init.ts",
     "preflight": "tsx scripts/preflight.ts",
     "metadata:upload": "tsx scripts/upload.ts",
-    "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" config/default.json package.json tsconfig.json"
+    "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" config/default.json package.json tsconfig.json",
+    "wallet:restore": "tsx scripts/wallet-restore.ts"
   },
   "dependencies": {
     "ethers": "^6.15.0",

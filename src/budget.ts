@@ -1,5 +1,19 @@
 import { Store } from "./store.js";
 import { uint } from "./money.js";
+export interface ChainCredit {
+  source: string;
+  amount: string;
+  block: number;
+  blockHash: string;
+}
+interface Credit {
+  agent: string;
+  amount: string;
+  active?: boolean;
+  chainId?: number;
+  block?: number;
+  blockHash?: string;
+}
 interface Account {
   balance: string;
   reserved: string;
@@ -20,7 +34,89 @@ export class Budget {
   }
   available(agent: string) {
     const a = this.account(agent);
-    return BigInt(a.balance) - BigInt(a.reserved);
+    const available = BigInt(a.balance) - BigInt(a.reserved);
+    return this.db.get<{ frozen: boolean }>("budget-chain-sync", agent)
+      ?.frozen && available > 0n
+      ? 0n
+      : available;
+  }
+  setChainSync(agent: string, frozen: boolean) {
+    this.db.put("budget-chain-sync", agent, { frozen });
+  }
+  /** Replace only this agent/network's tax receipts, retaining actual costs and holds. */
+  reconcileChain(agent: string, chainId: number, receipts: ChainCredit[]) {
+    if (!Number.isSafeInteger(chainId) || chainId < 1)
+      throw Error("invalid chain");
+    const prefix = `${chainId}:`,
+      canonical = new Map<string, ChainCredit>();
+    for (const receipt of receipts) {
+      uint(receipt.amount);
+      if (
+        !receipt.source.startsWith(prefix) ||
+        canonical.has(receipt.source) ||
+        !Number.isSafeInteger(receipt.block) ||
+        receipt.block < 0 ||
+        !receipt.blockHash
+      )
+        throw Error("invalid chain receipt");
+      canonical.set(receipt.source, receipt);
+    }
+    this.db.transaction(() => {
+      let before = 0n,
+        after = 0n;
+      const old = this.db
+        .entries<Credit>("credit")
+        .filter((row) => row.data.agent === agent && row.id.startsWith(prefix));
+      for (const row of old) {
+        if (row.data.active !== false) before += BigInt(row.data.amount);
+        if (!canonical.has(row.id))
+          this.db.put("credit", row.id, { ...row.data, active: false });
+      }
+      for (const [id, receipt] of canonical) {
+        const existing = this.db.get<Credit>("credit", id);
+        if (existing && existing.agent !== agent)
+          throw Error("chain receipt ownership conflict");
+        after += BigInt(receipt.amount);
+        this.db.put("credit", id, {
+          agent,
+          amount: receipt.amount,
+          active: true,
+          chainId,
+          block: receipt.block,
+          blockHash: receipt.blockHash,
+        });
+      }
+      const account = this.account(agent);
+      this.db.put("balance", agent, {
+        ...account,
+        balance: String(BigInt(account.balance) + after - before),
+      });
+      this.db.put("budget-reconciliation", `${agent}:${chainId}`, {
+        agent,
+        chainId,
+        removedOrAddedWei: String(after - before),
+        balanceWei: this.account(agent).balance,
+        at: Date.now(),
+      });
+    });
+  }
+  creditChain(agent: string, chainId: number, receipt: ChainCredit) {
+    if (!receipt.source.startsWith(`${chainId}:`))
+      throw Error("invalid chain receipt");
+    this.db.transaction(() => {
+      const prior = this.db.get<Credit>("credit", receipt.source);
+      if (prior?.active === false)
+        throw Error("orphaned receipt requires reconciliation");
+      this.credit(agent, receipt.source, uint(receipt.amount));
+      this.db.put("credit", receipt.source, {
+        agent,
+        amount: receipt.amount,
+        active: true,
+        chainId,
+        block: receipt.block,
+        blockHash: receipt.blockHash,
+      });
+    });
   }
   credit(agent: string, source: string, amount: bigint) {
     uint(amount);

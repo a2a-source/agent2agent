@@ -3,7 +3,8 @@ import { readFileSync } from "node:fs";
 import { JsonRpcProvider, Wallet } from "ethers";
 import { loadConfig } from "./config.js";
 import { Store } from "./store.js";
-import { WalletVault } from "./wallet.js";
+import { loadVault } from "./runtime-vault.js";
+import { WalletMaintenance } from "./wallet-maintenance.js";
 import { Agents } from "./agents.js";
 import { Budget } from "./budget.js";
 import { Journal } from "./chain.js";
@@ -21,16 +22,15 @@ const config = loadConfig(process.env.A2A_CONFIG),
     process.env.A2A_ADMIN_TOKEN ??
     readFileSync("var/admin-token", "utf8").trim();
 const db = new Store(config.database),
-  vault = new WalletVault(
-    readFileSync(config.rsaPublicKey, "utf8"),
-    readFileSync(config.rsaPrivateKey, "utf8"),
-    config.rsaKeyId,
-  ),
+  vault = loadVault(config),
   agents = new Agents(db, vault),
   budget = new Budget(db),
   epochs = new Epochs(db);
 const llm = new Llm(db, budget, config.llm, process.env.A2A_LLM_API_KEY ?? ""),
-  runner = new Runner(agents, budget, epochs, llm, config),
+  runner = new Runner(agents, budget, epochs, llm, config, {
+    concurrency: config.recovery.researchConcurrency,
+    maxAttempts: config.recovery.researchMaxAttempts,
+  }),
   penalties = new Penalties(
     agents,
     epochs,
@@ -48,6 +48,7 @@ if (config.chain.rpcUrl) {
     provider,
     config.chain.id,
     config.chain.writesEnabled,
+    { ...config.recovery, confirmations: config.chain.confirmations },
   );
   if (config.chain.stakeAddress)
     watcher = new Watcher(
@@ -58,6 +59,7 @@ if (config.chain.rpcUrl) {
       config.chain.confirmations,
       config.chain.fromBlock,
       BigInt(config.chain.gasReserveWei),
+      config.recovery.scanPagesPerTick,
     );
   if (
     config.chain.flapPortal &&
@@ -80,7 +82,19 @@ if (config.chain.rpcUrl) {
     );
   }
 }
-const scheduler = new Scheduler(runner, penalties, watcher, launcher),
+const maintenance = new WalletMaintenance(db, vault, {
+  batchSize: config.recovery.walletBatchSize,
+  backupDirectory: config.recovery.backupDirectory,
+  backupIntervalMs: config.recovery.backupIntervalMs,
+  maxBackups: config.recovery.maxBackups,
+});
+const scheduler = new Scheduler(
+    runner,
+    penalties,
+    watcher,
+    launcher,
+    maintenance,
+  ),
   api = createApi({
     agents,
     budget,

@@ -105,10 +105,19 @@ export class FlapLauncher {
     )) as string;
     const splitId = `splitter:${id}`;
     if ((await provider.getCode(predicted)) === "0x") {
-      await this.journal.send(splitId, this.signer.address, () => this.signer, {
-        to: c.factory,
-        data: factory.interface.encodeFunctionData("create", [key, a.wallet]),
-      });
+      await this.journal.send(
+        splitId,
+        this.signer.address,
+        () => this.signer,
+        {
+          to: c.factory,
+          data: factory.interface.encodeFunctionData("create", [key, a.wallet]),
+        },
+        {
+          confirmations: c.confirmations,
+          safeRetry: async () => (await provider.getCode(predicted)) === "0x",
+        },
+      );
       if (!(await this.journal.confirmed(splitId, c.confirmations))) return a;
     }
     const split = new Contract(
@@ -137,11 +146,24 @@ export class FlapLauncher {
     }
     const txId = `launch:${id}`,
       params = buildLaunch(a, predicted, vanity.salt, c.taxDuration);
-    await this.journal.send(txId, this.signer.address, () => this.signer, {
-      to: c.portal,
-      data: new Interface(FLAP_ABI).encodeFunctionData("newTokenV6", [params]),
-      value: BigInt(c.launchValueWei),
-    });
+    await this.journal.send(
+      txId,
+      this.signer.address,
+      () => this.signer,
+      {
+        to: c.portal,
+        data: new Interface(FLAP_ABI).encodeFunctionData("newTokenV6", [
+          params,
+        ]),
+        value: BigInt(c.launchValueWei),
+      },
+      {
+        confirmations: c.confirmations,
+        safeRetry: async () =>
+          (await provider.getCode(vanity!.address)) === "0x" &&
+          (await provider.getCode(predicted)) !== "0x",
+      },
+    );
     if (!(await this.journal.confirmed(txId, c.confirmations)))
       return this.agents.get(id);
     if ((await provider.getCode(vanity.address)) === "0x")

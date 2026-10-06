@@ -3,6 +3,11 @@ import type { Watcher } from "./watcher.js";
 import type { FlapLauncher } from "./flap.js";
 import type { Penalties } from "./penalties.js";
 import type { Epoch } from "./epochs.js";
+import type { TxRecord } from "./chain.js";
+import type { WalletMaintenance } from "./wallet-maintenance.js";
+import type { ChainState } from "./watcher.js";
+import type { EncryptedWallet } from "./wallet.js";
+import { MIN_STAKE } from "./money.js";
 export class Scheduler {
   private busy = false;
   private stopped = false;
@@ -20,6 +25,7 @@ export class Scheduler {
     readonly penalties: Penalties,
     readonly watcher?: Watcher,
     readonly launcher?: FlapLauncher,
+    readonly maintenance?: WalletMaintenance,
   ) {}
   async tick() {
     if (this.busy || this.stopped) return;
@@ -45,6 +51,11 @@ export class Scheduler {
         }
       }
       if (this.stopped) return;
+      for (const a of this.runner.agents.list()) {
+        const launch = db.get<TxRecord>("transaction", `launch:${a.id}`);
+        if (a.launch === "CONFIRMED" && launch && launch.state !== "CONFIRMED")
+          this.runner.agents.update(a.id, { launch: "PENDING" });
+      }
       if (this.launcher && this.launcher.journal.enabled)
         for (const a of this.runner.agents
           .list()
@@ -59,14 +70,54 @@ export class Scheduler {
           }
         }
       if (this.stopped) return;
+      if (this.maintenance) {
+        try {
+          await this.maintenance.tick();
+          db.put("service-error", "wallet-maintenance", { status: "HEALTHY" });
+        } catch {
+          db.put("service-error", "wallet-maintenance", {
+            at: Date.now(),
+            reason: "MAINTENANCE_RETRY_PENDING",
+          });
+        }
+      }
+      if (this.stopped) return;
+      this.penalties.observeResearch();
+      const providerReady = await this.runner.llm.probeProvider();
+      if (this.stopped) return;
+      await this.penalties.recoverOperational(async (id) => {
+        const a = this.runner.agents.get(id),
+          state = db.get<ChainState>("chain-state", id);
+        if (
+          !providerReady ||
+          a.launch !== "CONFIRMED" ||
+          !state?.known ||
+          Date.now() - state.observedAt >
+            this.runner.config.network.stateMaxAgeMs ||
+          BigInt(state.bonded) < MIN_STAKE ||
+          BigInt(state.exit) > 0n ||
+          this.runner.budget.available(id) < this.runner.llm.maximum()
+        )
+          return false;
+        const wallet = db.get<EncryptedWallet>("wallet", id);
+        if (!wallet) return false;
+        await this.runner.agents.vault.verify(wallet);
+        return true;
+      });
+      if (this.stopped) return;
       const now = Date.now();
       let e = db.all<Epoch>("epoch").find((e) => e.status === "RUNNING");
       if (e && now >= e.deadline) {
         this.runner.cancel();
-        this.penalties.failure(`timeout:${e.id}:${e.view}`, e.master, now);
+        this.runner.epochs.incident(
+          `timeout:${e.id}:${e.view}`,
+          e.master,
+          "ROUND_TIMEOUT",
+          now,
+        );
         e = this.runner.epochs.takeover(e.id, e.view, now);
       }
-      if (e?.status === "FAILED") return;
+      if (e?.status === "FAILED" || !providerReady) return;
       if (!e) {
         const last = db.all<Epoch>("epoch").sort((a, b) => b.slot - a.slot)[0];
         const schedule = db.get<{ nextAt: number }>("schedule", "network");

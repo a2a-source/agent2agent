@@ -9,6 +9,25 @@ const schema = z.object({
   rsaPublicKey: z.string(),
   rsaPrivateKey: z.string(),
   rsaKeyId: z.string().min(1),
+  rsaKeyRingFile: z.string().default(""),
+  recovery: z.object({
+    researchConcurrency: integer.max(16),
+    researchMaxAttempts: integer.max(8),
+    scanPagesPerTick: integer.max(100),
+    retryBaseMs: integer,
+    retryMaxMs: integer,
+    maxAttempts: integer.max(100),
+    deadlineMs: integer,
+    cooldownMs: integer,
+    bumpAfterAttempts: integer,
+    maxFeeBumps: z.number().int().min(0).max(10),
+    maxGasPriceWei: wei,
+    maxLogicalAttempts: z.number().int().min(0).max(5),
+    walletBatchSize: integer,
+    backupDirectory: z.string(),
+    backupIntervalMs: integer,
+    maxBackups: integer.max(1000),
+  }),
   chain: z.object({
     id: integer,
     rpcUrl: z.string(),
@@ -67,6 +86,7 @@ export function loadConfig(path?: string): Config {
     chain: { ...base.chain, ...override.chain },
     network: { ...base.network, ...override.network },
     llm: { ...base.llm, ...override.llm },
+    recovery: { ...base.recovery, ...override.recovery },
   });
   if (new Set(c.roles.map((r) => r.id)).size !== c.roles.length)
     throw Error("duplicate roles");
