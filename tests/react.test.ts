@@ -293,12 +293,14 @@ test("ReAct stops tools at the configured round bound even if the model keeps re
 });
 
 test("known token usage is settled even when provider supplies no assistant content", async () => {
+  let withError = false;
   const server = createServer((req, res) => {
     req.resume();
     req.on("end", () => {
       res.setHeader("content-type", "application/json");
       res.end(
         JSON.stringify({
+          ...(withError ? { error: { code: 503 } } : {}),
           choices: [{ message: { role: "assistant", content: null } }],
           usage: { prompt_tokens: 20, completion_tokens: 10 },
         }),
@@ -321,6 +323,61 @@ test("known token usage is settled even when provider supplies no assistant cont
     );
     assert.equal(budget.account("a").reserved, "0");
     assert.equal(budget.available("a"), 999960n);
+    withError = true;
+    await assert.rejects(
+      llm.chat("a", "error-with-usage", { messages: [] }),
+      /provider error 503/,
+    );
+    assert.equal(budget.account("a").reserved, "0");
+    assert.equal(budget.available("a"), 999920n);
+  } finally {
+    db.close();
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});
+
+test("provider failures retain only bounded diagnostic metadata, including HTTP 200 errors", async () => {
+  let received: any;
+  const server = createServer((req, res) => {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      received = JSON.parse(body);
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          id: "gen-fixture",
+          error: { code: 502, message: "SECRET echoed text" },
+          choices: [
+            {
+              finish_reason: "error",
+              message: { content: null, reasoning: "SECRET reasoning" },
+            },
+          ],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const db = new Store(":memory:"),
+    budget = new Budget(db),
+    c = loadConfig().llm;
+  c.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
+  (c as any).reasoningEffort = "none";
+  budget.credit("a", "fund", 100000000000n);
+  try {
+    const llm = new Llm(db, budget, c, "SECRET key");
+    await assert.rejects(
+      llm.chat("a", "diagnostic", { messages: [] }),
+      /LLM provider error 502/,
+    );
+    const row = db.get<any>("llm-call", "diagnostic");
+    assert.equal(row.diagnostic.providerErrorCode, 502);
+    assert.equal(row.diagnostic.generationId, "gen-fixture");
+    assert.equal(JSON.stringify(row).includes("SECRET"), false);
+    assert.deepEqual(received.reasoning, { effort: "none" });
+    assert.ok(BigInt(budget.account("a").reserved) > 0n);
   } finally {
     db.close();
     server.closeAllConnections();

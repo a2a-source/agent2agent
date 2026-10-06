@@ -67,6 +67,9 @@ const schema = z.object({
     toolsEnabled: z.boolean(),
   }),
   llm: z.object({
+    reasoningEffort: z
+      .enum(["none", "minimal", "low", "medium", "high"])
+      .optional(),
     apiKeyFile: z.string().default(""),
     requestLimitPerDay: z.number().int().nonnegative().default(0),
     endpoint: z.string().url(),

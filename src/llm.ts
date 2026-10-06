@@ -210,6 +210,9 @@ export class Llm {
       model: c.model,
       max_tokens: c.maxOutputTokens,
       stream: false,
+      ...(c.reasoningEffort
+        ? { reasoning: { effort: c.reasoningEffort } }
+        : {}),
     };
     delete (payload as any).max_completion_tokens;
     if (Buffer.byteLength(JSON.stringify(payload)) > c.maxInputBytes)
@@ -236,18 +239,51 @@ export class Llm {
         startedAt: Date.now(),
       });
     });
+    let diagnostic: Record<string, unknown> | undefined;
     try {
       const response = await this.completion(payload, signal);
       if (!response.ok) throw Error(`LLM HTTP ${response.status}`);
       const body = (await readJson(response)) as any;
+      // Never persist provider error text, prompts or reasoning in diagnostics.
+      const label = (v: unknown) =>
+        typeof v === "string" && /^[a-zA-Z0-9_./:-]{1,160}$/.test(v)
+          ? v
+          : undefined;
+      diagnostic = {
+        httpStatus: response.status,
+        generationId: label(body.id),
+        model: label(body.model),
+        finishReason: label(body.choices?.[0]?.finish_reason),
+        providerErrorCode: Number.isSafeInteger(body.error?.code)
+          ? body.error.code
+          : undefined,
+        hasContent: typeof body.choices?.[0]?.message?.content === "string",
+        hasUsage: !!body.usage,
+        promptTokens: Number.isSafeInteger(body.usage?.prompt_tokens)
+          ? body.usage.prompt_tokens
+          : undefined,
+        completionTokens: Number.isSafeInteger(body.usage?.completion_tokens)
+          ? body.usage.completion_tokens
+          : undefined,
+        reasoningTokens: Number.isSafeInteger(
+          body.usage?.completion_tokens_details?.reasoning_tokens,
+        )
+          ? body.usage.completion_tokens_details.reasoning_tokens
+          : undefined,
+      };
       const usage = body.usage;
+      const providerError = body.error
+        ? new Error(
+            `LLM provider error ${diagnostic.providerErrorCode ?? "unknown"}`,
+          )
+        : undefined;
       if (
         !Number.isSafeInteger(usage?.prompt_tokens) ||
         !Number.isSafeInteger(usage?.completion_tokens) ||
         usage.prompt_tokens < 0 ||
         usage.completion_tokens < 0
       )
-        throw Error("LLM usage unavailable");
+        throw providerError ?? Error("LLM usage unavailable");
       const actual =
         (BigInt(usage.prompt_tokens) * BigInt(c.inputWeiPerMillion) +
           BigInt(usage.completion_tokens) * BigInt(c.outputWeiPerMillion) +
@@ -255,6 +291,7 @@ export class Llm {
         1000000n;
       // Usage is known even when a provider returns only reasoning or no answer.
       this.budget.settle(id, actual);
+      if (providerError) throw providerError;
       const content = body.choices?.[0]?.message?.content;
       if (
         typeof content !== "string" &&
@@ -303,6 +340,7 @@ export class Llm {
         status: "UNKNOWN",
         failure,
         error: e instanceof Error ? e.message : "LLM failed",
+        diagnostic,
       });
       throw e;
     }
