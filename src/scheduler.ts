@@ -1,3 +1,4 @@
+import type { TaxSettlement } from "./tax-settlement.js";
 import type { Runner } from "./runner.js";
 import type { Watcher } from "./watcher.js";
 import type { FlapLauncher } from "./flap.js";
@@ -26,6 +27,7 @@ export class Scheduler {
     readonly watcher?: Watcher,
     readonly launcher?: FlapLauncher,
     readonly maintenance?: WalletMaintenance,
+    readonly settlement?: TaxSettlement,
   ) {}
   async tick() {
     if (this.busy || this.stopped) return;
@@ -69,6 +71,17 @@ export class Scheduler {
             });
           }
         }
+      if (this.stopped) return;
+      if (this.settlement) {
+        try {
+          await this.settlement.tick();
+        } catch {
+          db.put("service-error", "settlement", {
+            at: Date.now(),
+            reason: "SETTLEMENT_RETRY_PENDING",
+          });
+        }
+      }
       if (this.stopped) return;
       if (this.maintenance) {
         try {

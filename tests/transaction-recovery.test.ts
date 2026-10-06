@@ -379,3 +379,37 @@ test("canonical rollback releases isolation only for exact free nonce replay", a
   assert.equal(Transaction.from(raws[1]).nonce, 0);
   f.db.close();
 });
+
+test("persisted transaction fee ceiling survives a restart with a higher replacement policy", async () => {
+  const db = new Store(":memory:"),
+    w = Wallet.createRandom(),
+    raws: string[] = [];
+  const p: any = {
+    getNetwork: async () => ({ chainId: 97n }),
+    getTransactionCount: async () => 0,
+    getFeeData: async () => ({ gasPrice: 1n }),
+    estimateGas: async () => 21000n,
+    getTransactionReceipt: async () => null,
+    broadcastTransaction: async (raw: string) => {
+      raws.push(raw);
+    },
+  };
+  const policy = {
+    retryBaseMs: 0,
+    bumpAfterAttempts: 1,
+    maxFeeBumps: 2,
+    maxGasPriceWei: "10",
+  };
+  await new Journal(db, p, 97, true, {
+    ...policy,
+    maxTransactionFeeWei: "25200",
+  }).send("capped", w.address, () => w, { to: w.address });
+  await new Journal(db, p, 97, true, {
+    ...policy,
+    maxTransactionFeeWei: "999999",
+  }).send("capped", w.address, () => w, { to: w.address });
+  assert.equal(raws.length, 2);
+  assert.equal(raws[0], raws[1]);
+  assert.equal(db.get<any>("transaction", "capped").maxFeeWei, "25200");
+  db.close();
+});

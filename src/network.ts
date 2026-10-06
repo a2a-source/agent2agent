@@ -2,12 +2,13 @@ import {
   EnvHttpProxyAgent,
   fetch as undiciFetch,
   type Dispatcher,
+  type FormData,
 } from "undici";
 import { FetchRequest } from "ethers";
 let dispatcher: Dispatcher | undefined;
 export function networkFetch(
   input: string | URL,
-  init?: RequestInit,
+  init?: Omit<RequestInit, "body"> & { body?: RequestInit["body"] | FormData },
 ): Promise<Response> {
   return undiciFetch(input, { ...init, dispatcher } as Parameters<
     typeof undiciFetch

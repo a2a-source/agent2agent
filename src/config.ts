@@ -10,6 +10,13 @@ const schema = z.object({
   rsaPrivateKey: z.string(),
   rsaKeyId: z.string().min(1),
   rsaKeyRingFile: z.string().default(""),
+  settlement: z.object({
+    minRevenueWei: wei,
+    maxFeeWei: wei,
+    dailyBudgetWei: wei,
+    gasReserveWei: wei,
+    intervalMs: integer,
+  }),
   recovery: z.object({
     researchConcurrency: integer.max(16),
     researchMaxAttempts: integer.max(8),
@@ -41,6 +48,7 @@ const schema = z.object({
     flapImplementation: z.string(),
     taxDuration: integer,
     launchValueWei: wei,
+    flapDexThreshold: z.number().int().min(0).max(5).default(0),
   }),
   network: z.object({
     termSlots: integer,
@@ -87,6 +95,7 @@ export function loadConfig(path?: string): Config {
     network: { ...base.network, ...override.network },
     llm: { ...base.llm, ...override.llm },
     recovery: { ...base.recovery, ...override.recovery },
+    settlement: { ...base.settlement, ...override.settlement },
   });
   if (new Set(c.roles.map((r) => r.id)).size !== c.roles.length)
     throw Error("duplicate roles");

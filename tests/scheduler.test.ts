@@ -41,3 +41,41 @@ test("shutdown drains an in-flight chain poll and does not start another epoch",
   assert.equal(polls, 1);
   db.close();
 });
+
+test("settlement errors are isolated from provider health and research scheduling", async () => {
+  const db = new Store(":memory:");
+  let probed = false;
+  const runner: any = {
+    agents: { db, list: () => [] },
+    llm: {
+      probeProvider: async () => {
+        probed = true;
+        return false;
+      },
+    },
+    cancel() {},
+  };
+  const penalties: any = {
+    observeResearch() {},
+    async recoverOperational() {},
+  };
+  const settlement: any = {
+    async tick() {
+      throw Error("temporary settlement failure");
+    },
+  };
+  await new Scheduler(
+    runner,
+    penalties,
+    undefined,
+    undefined,
+    undefined,
+    settlement,
+  ).tick();
+  assert.equal(probed, true);
+  assert.equal(
+    db.get<any>("service-error", "settlement").reason,
+    "SETTLEMENT_RETRY_PENDING",
+  );
+  db.close();
+});

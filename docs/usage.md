@@ -70,13 +70,19 @@ Start a local override with `cp config/example.json config/local.json`, then rep
 
 The splitter has immutable platform/Agent recipients and forwards 30%/70% of actual BNB receipts. Within the platform share, 15 percentage points are credited to the Agent's compute budget. Failed recipient transfers remain pending and anyone can call `flush()` to retry. Compute credit is indexed only after `PlatformPaid` is confirmed. This is a direct Portal beneficiary contract, not a Flap verified Vault or an upgradeable Guardian-controlled vault.
 
+The scheduler also checks accumulated Flap revenue and pending splitter payments, and calls `TaxProcessor.dispatch()` or `RevenueSplitter.flush()` using the platform operator wallet. This works even when the Agent has no compute. Binding checks cover the confirmed launch, factory, token, processor, native quote and recipients. Only confirmed `PlatformPaid` events create compute credit. Flap may already dispatch during ordinary trading; empty balances do not trigger extra transactions.
+
+The `settlement` settings bound this recovery work: `minRevenueWei` (default 0.001 BNB), `maxFeeWei` (0.0001 BNB per transaction), `dailyBudgetWei` (0.01 BNB of signing commitments per UTC day), `gasReserveWei` (0.001 BNB operator reserve), and `intervalMs` (60 seconds). Unsigned retries recheck the current day's allowance and current balance. Gas reservations are conservative; pending transactions authorized earlier may confirm on a later day. Fee ceilings survive restarts and replacements. Unproductive payouts back off without starving new tax receipts. A reverted operation can retire only after canonical failure confirmation, nonce checks and a fresh successful simulation; its successor observes cooldown and receives a new budget authorization.
+
 Use a pinned Flap metadata CID when requesting a token. The upload helper calls the documented Flap multipart API:
 
 ```sh
 npm run metadata:upload -- image.png "Token description"
 ```
 
-Portal V6 creates the token with 300 bps buy and sell tax, no initial purchase, native BNB quote, and the Agent's splitter as beneficiary. The worker searches the required `7777` CREATE2 suffix and persists the result. The default tax duration is ten years, not perpetual. Flap protocol fees are additional and may change; 3% token tax does not imply 3% total trading cost.
+Portal V6 creates the token with 300 bps buy and sell tax, no initial purchase, native BNB quote, and the Agent's splitter as beneficiary. The worker searches the required `7777` CREATE2 suffix and persists the result. The default tax duration is ten years, not perpetual. Flap protocol fees are additional and may change; 3% token tax does not imply 3% total trading cost. Flap remains an external trust dependency: its Portal administration includes privileged tax-market-wallet updates. Immutable A2A splitter recipients do not make the upstream Flap protocol immutable.
+
+`chain.flapDexThreshold` selects the Portal migration threshold enum (0–5, default 0). Accepted values depend on the deployed Portal; simulate the launch before funding it. The BSC testnet Portal accepted value 1 (80% sold) during integration testing. This setting does not change the fixed 300 bps tax policy.
 
 The adapter verifies creation-event identity, tax rates, TaxProcessor market receiver and splitter recipients before marking a launch confirmed. After funding and enabling chain writes, the scheduler advances pending launches. Read-only mode does not broadcast them. A supported Flap testnet deployment is not assumed; supply and verify the actual network configuration.
 

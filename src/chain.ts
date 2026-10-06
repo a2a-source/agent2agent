@@ -18,6 +18,7 @@ export interface TxRecord {
   state: "READY" | "CONFIRMED" | "REVERTED";
   block?: number;
   blockHash?: string;
+  maxFeeWei?: string;
   hashes?: string[];
   recovery?: {
     attempts: number;
@@ -37,6 +38,7 @@ export interface TxRecoveryPolicy {
   bumpAfterAttempts?: number;
   maxFeeBumps?: number;
   maxGasPriceWei?: string;
+  maxTransactionFeeWei?: string;
   maxLogicalAttempts?: number;
   cooldownMs?: number;
   confirmations?: number;
@@ -203,6 +205,16 @@ export class Journal {
           ((await this.provider.estimateGas({ ...request, from: sender })) *
             12n) /
           10n;
+        if (
+          this.policy.maxTransactionFeeWei !== undefined &&
+          gasLimit * fees.gasPrice > BigInt(this.policy.maxTransactionFeeWei)
+        )
+          throw Error("transaction exceeds gas budget");
+        if (
+          this.policy.maxGasPriceWei !== undefined &&
+          fees.gasPrice > BigInt(this.policy.maxGasPriceWei)
+        )
+          throw Error("transaction exceeds gas price budget");
         const w = signer();
         if (w.address.toLowerCase() !== sender.toLowerCase())
           throw Error("signer mismatch");
@@ -221,6 +233,7 @@ export class Journal {
           raw,
           hash: keccak256(raw),
           state: "READY",
+          maxFeeWei: this.policy.maxTransactionFeeWei,
         };
         this.db.transaction(() => {
           const lock = this.db.get<{ owner: string; expires: number }>(
@@ -382,7 +395,11 @@ export class Journal {
       m.feeBumps < (this.policy.maxFeeBumps ?? 0)
     ) {
       const fee = ((tx.gasPrice ?? 0n) * 1125n + 999n) / 1000n;
-      if (fee <= BigInt(this.policy.maxGasPriceWei ?? "0")) {
+      if (
+        fee <= BigInt(this.policy.maxGasPriceWei ?? "0") &&
+        (row.maxFeeWei === undefined ||
+          fee * tx.gasLimit <= BigInt(row.maxFeeWei))
+      ) {
         const w = signer();
         if (w.address.toLowerCase() !== row.sender.toLowerCase())
           throw Error("signer mismatch");

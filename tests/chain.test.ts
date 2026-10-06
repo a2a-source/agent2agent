@@ -140,3 +140,38 @@ test("confirmation ahead of the balance snapshot retains the outgoing reservatio
   assert.equal(journal.reserved(wallet.address, 100), 0n);
   db.close();
 });
+
+test("Flap launch supports deployment-specific DEX threshold without changing tax policy", () => {
+  const p = buildLaunch(
+    { name: "Test", symbol: "TEST", meta: "cid" },
+    Wallet.createRandom().address,
+    "0x" + "00".repeat(32),
+    86400,
+    1,
+  );
+  assert.equal(p.dexThresh, 1);
+  assert.equal(p.buyTaxRate, 300);
+  assert.equal(p.sellTaxRate, 300);
+});
+
+test("journal refuses an initial transaction exceeding its persistent gas budget", async () => {
+  const db = new Store(":memory:"),
+    wallet = Wallet.createRandom();
+  const provider: any = {
+    getNetwork: async () => ({ chainId: 97n }),
+    getTransactionCount: async () => 0,
+    getFeeData: async () => ({ gasPrice: 10n }),
+    estimateGas: async () => 21000n,
+  };
+  const journal = new Journal(db, provider, 97, true, {
+    maxTransactionFeeWei: "100",
+  });
+  await assert.rejects(
+    journal.send("bounded", wallet.address, () => wallet, {
+      to: wallet.address,
+    }),
+    /gas budget/,
+  );
+  assert.equal(db.all("transaction").length, 0);
+  db.close();
+});

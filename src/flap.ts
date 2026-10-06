@@ -1,3 +1,4 @@
+import { FormData } from "undici";
 import { networkFetch as fetch } from "./network.js";
 import {
   Contract,
@@ -25,10 +26,11 @@ export function buildLaunch(
   beneficiary: string,
   salt: string,
   taxDuration: number,
+  dexThresh = 0,
 ) {
   return {
     ...input,
-    dexThresh: 0,
+    dexThresh,
     salt,
     migratorType: 1,
     quoteToken: ZeroAddress,
@@ -78,6 +80,7 @@ export interface FlapConfig {
   factory: string;
   taxDuration: number;
   launchValueWei: string;
+  dexThresh?: number;
   confirmations: number;
 }
 export class FlapLauncher {
@@ -145,7 +148,13 @@ export class FlapLauncher {
       this.agents.db.put("vanity", id, vanity);
     }
     const txId = `launch:${id}`,
-      params = buildLaunch(a, predicted, vanity.salt, c.taxDuration);
+      params = buildLaunch(
+        a,
+        predicted,
+        vanity.salt,
+        c.taxDuration,
+        c.dexThresh,
+      );
     await this.journal.send(
       txId,
       this.signer.address,

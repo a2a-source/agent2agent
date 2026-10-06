@@ -17,7 +17,8 @@
     "flapPortal": "",
     "flapImplementation": "",
     "taxDuration": 315360000,
-    "launchValueWei": "1000000000000000"
+    "launchValueWei": "1000000000000000",
+    "flapDexThreshold": 0
   },
   "network": {
     "termSlots": 7,
@@ -90,5 +91,12 @@
     "backupDirectory": "var/backups",
     "backupIntervalMs": 86400000,
     "maxBackups": 30
+  },
+  "settlement": {
+    "minRevenueWei": "1000000000000000",
+    "maxFeeWei": "100000000000000",
+    "dailyBudgetWei": "10000000000000000",
+    "gasReserveWei": "1000000000000000",
+    "intervalMs": 60000
   }
 }

@@ -1,3 +1,4 @@
+import { TaxSettlement } from "./tax-settlement.js";
 import { configureProxy } from "./network.js";
 import { readFileSync } from "node:fs";
 import { JsonRpcProvider, Wallet } from "ethers";
@@ -38,7 +39,9 @@ const llm = new Llm(db, budget, config.llm, process.env.A2A_LLM_API_KEY ?? ""),
     config.network.failureLimit,
     config.network.jailMs,
   );
-let watcher: Watcher | undefined, launcher: FlapLauncher | undefined;
+let watcher: Watcher | undefined,
+  launcher: FlapLauncher | undefined,
+  settlement: TaxSettlement | undefined;
 if (config.chain.rpcUrl) {
   const provider = new JsonRpcProvider(config.chain.rpcUrl, undefined, {
     cacheTimeout: -1,
@@ -67,6 +70,16 @@ if (config.chain.rpcUrl) {
     config.chain.factoryAddress &&
     process.env.A2A_OPERATOR_PRIVATE_KEY
   ) {
+    settlement = new TaxSettlement(
+      agents,
+      journal,
+      new Wallet(process.env.A2A_OPERATOR_PRIVATE_KEY),
+      {
+        ...config.settlement,
+        factory: config.chain.factoryAddress,
+        confirmations: config.chain.confirmations,
+      },
+    );
     launcher = new FlapLauncher(
       agents,
       journal,
@@ -77,6 +90,7 @@ if (config.chain.rpcUrl) {
         factory: config.chain.factoryAddress,
         taxDuration: config.chain.taxDuration,
         launchValueWei: config.chain.launchValueWei,
+        dexThresh: config.chain.flapDexThreshold,
         confirmations: config.chain.confirmations,
       },
     );
@@ -94,6 +108,7 @@ const scheduler = new Scheduler(
     watcher,
     launcher,
     maintenance,
+    settlement,
   ),
   api = createApi({
     agents,
