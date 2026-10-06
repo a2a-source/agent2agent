@@ -20,7 +20,10 @@
     "wallet:restore": "tsx scripts/wallet-restore.ts"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.16",
+    "@langchain/openai": "^1.6.2",
     "ethers": "^6.15.0",
+    "langchain": "^1.5.15",
     "undici": "^7.30.0",
     "zod": "^3.24.0"
   },

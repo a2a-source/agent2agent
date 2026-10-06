@@ -61,7 +61,14 @@ const schema = z.object({
     failureLimit: integer,
     jailMs: integer,
   }),
+  agent: z.object({
+    maxToolRounds: integer.max(20),
+    maxToolCalls: integer.max(100),
+    toolsEnabled: z.boolean(),
+  }),
   llm: z.object({
+    apiKeyFile: z.string().default(""),
+    requestLimitPerDay: z.number().int().nonnegative().default(0),
     endpoint: z.string().url(),
     model: z.string().min(1),
     timeoutMs: integer,
@@ -94,6 +101,7 @@ export function loadConfig(path?: string): Config {
     chain: { ...base.chain, ...override.chain },
     network: { ...base.network, ...override.network },
     llm: { ...base.llm, ...override.llm },
+    agent: { ...base.agent, ...override.agent },
     recovery: { ...base.recovery, ...override.recovery },
     settlement: { ...base.settlement, ...override.settlement },
   });

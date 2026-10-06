@@ -480,3 +480,38 @@ test("Runner repairs six-worker collapse over HTTP and replaces only a failed re
     db.close();
   }
 });
+
+test("resumable framework reenters crashed attempt with its original identity", async () => {
+  const db = new Store(":memory:");
+  try {
+    const { hash } = await import("../src/protocol.js");
+    const key = "resume",
+      workers = ["a"],
+      context = { task: 1 };
+    db.put("research-attempt", key + ":attempt:0", {
+      id: key + ":attempt:0",
+      agent: "a",
+      contextHash: hash({ workers, context }),
+      status: "RUNNING",
+    });
+    const tasks = new ResearchTasks(db, { maxAttempts: 1, resumable: true });
+    let called = "";
+    assert.equal(
+      await tasks.execute(
+        key,
+        workers,
+        Date.now() + 1000,
+        () => {},
+        async (_a, id) => {
+          called = id;
+          return 42;
+        },
+        context,
+      ),
+      42,
+    );
+    assert.equal(called, key + ":attempt:0");
+  } finally {
+    db.close();
+  }
+});

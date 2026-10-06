@@ -1,3 +1,4 @@
+import { AgentRuntime } from "./agent-runtime.js";
 import { TaxSettlement } from "./tax-settlement.js";
 import { configureProxy } from "./network.js";
 import { readFileSync } from "node:fs";
@@ -27,11 +28,27 @@ const db = new Store(config.database),
   agents = new Agents(db, vault),
   budget = new Budget(db),
   epochs = new Epochs(db);
-const llm = new Llm(db, budget, config.llm, process.env.A2A_LLM_API_KEY ?? ""),
-  runner = new Runner(agents, budget, epochs, llm, config, {
-    concurrency: config.recovery.researchConcurrency,
-    maxAttempts: config.recovery.researchMaxAttempts,
-  }),
+const llm = new Llm(
+    db,
+    budget,
+    config.llm,
+    process.env.A2A_LLM_API_KEY ??
+      (config.llm.apiKeyFile
+        ? readFileSync(config.llm.apiKeyFile, "utf8").trim()
+        : ""),
+  ),
+  runner = new Runner(
+    agents,
+    budget,
+    epochs,
+    llm,
+    config,
+    {
+      concurrency: config.recovery.researchConcurrency,
+      maxAttempts: config.recovery.researchMaxAttempts,
+    },
+    new AgentRuntime(llm, config.agent),
+  ),
   penalties = new Penalties(
     agents,
     epochs,
@@ -119,7 +136,10 @@ const scheduler = new Scheduler(
     launcher,
     penalties,
     tick: () => scheduler.tick(),
-    minimumCompute: llm.maximum() * BigInt(config.roles.length + 2),
+    minimumCompute:
+      llm.maximum() *
+      BigInt(config.agent.maxToolRounds + 1) *
+      BigInt(config.roles.length + 2),
     stateMaxAgeMs: config.network.stateMaxAgeMs,
   });
 api.requestTimeout = 30000;

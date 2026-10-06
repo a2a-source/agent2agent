@@ -37,7 +37,13 @@ The default API listens on `127.0.0.1:3000`, with chain writes disabled. Protect
 
 For example, an already-running local VPN HTTP proxy can be used with `A2A_HTTP_PROXY=http://127.0.0.1:7897`. The application does not modify system VPN settings. Configure external endpoints yourself; API users cannot change them.
 
-LLM `endpoint` is a base URL such as `https://provider.example/v1`; `/chat/completions` is appended. The provider must support JSON-object output, `max_tokens`, and `usage.prompt_tokens` / `usage.completion_tokens`. Prices are operator-specified integer wei per million tokens. These are accounting tariffs, not an automatic BNB/fiat conversion. Missing usage or ambiguous network failures retain the reserved budget for reconciliation.
+Agents run LangChain `createAgent` on its LangGraph runtime. Workers iterate model → tool → observation; Master planning and synthesis use the same runtime without research tools. Public configuration defaults to OpenRouter (`https://openrouter.ai/api/v1`) and `openai/gpt-6.1-sol`. Set `llm.endpoint` and `llm.model` for another compatible provider. The model must support chat completions, tool calling, `max_tokens`, and `usage.prompt_tokens` / `usage.completion_tokens`; final answers must follow the JSON schema in the prompt.
+
+Supply `A2A_LLM_API_KEY`, or set `llm.apiKeyFile` to a private local text file with one key per line. Environment credentials take precedence. Keep the file outside version control. Explicit HTTP 429 responses trigger bounded rotation through the configured keys; timeouts and ambiguous failures do not trigger key rotation or SDK retries. Cooldowns and completion-attempt counts persist in SQLite. `llm.requestLimitPerDay` caps attempts across keys and models for that endpoint per UTC day (0 means unlimited). Free models can be selected in an ignored local override; there is no automatic fallback to a paid model.
+
+`agent.maxToolRounds` defaults to 10, followed by at most one final model response; `agent.maxToolCalls` defaults to 20 across that task. Each model request reserves and settles compute independently, including tool history. Completed task/tool results are cached against their inputs. Prices are operator-specified integer wei per million tokens, not an automatic BNB/fiat conversion or the provider's reported dollar cost. Missing usage or ambiguous network failures retain the reserved budget for reconciliation.
+
+Built-in read-only tools provide DuckDuckGo web search, Google News RSS search and public HTTPS page retrieval. Search availability is best effort. Page retrieval blocks private/reserved addresses, validates redirects and pins DNS results; it connects directly rather than forwarding arbitrary Agent-selected URLs through the configured proxy. Fixed search-provider requests can use `A2A_HTTP_PROXY`. Response sizes, timeouts and tool calls are bounded. Search retrieval time is not market-data freshness; news publication times are preserved when provided, and undated pages remain undated. Tools cannot access wallet signing or API credentials. Web/news citations remain research evidence; actionable signals require a cited, fresh configured data adapter with a verified `asOf`. QSP `dataAt: 0` means at least one report has no verified data time. Tool limitations are carried into report `missing` fields.
 
 Each role may have a `sourceUrl`. Its JSON response must be:
 
@@ -45,7 +51,7 @@ Each role may have a `sourceUrl`. Its JSON response must be:
 {"asOf": 1791220000000, "data": {"observations": []}}
 ```
 
-`asOf` is the underlying data time in Unix milliseconds. Undated, future-dated, oversized or expired data is marked missing. LLM reports cannot invent source URLs; signals must cite roles with source-backed reports. Without configured sources the system can produce a signed, explicit no-data report with no investment signals. It has no built-in access to X or commercial news subscriptions.
+`asOf` is the underlying data time in Unix milliseconds. Undated, future-dated, oversized or expired data is marked missing. LLM reports cannot invent source URLs; signals must cite roles with source-backed reports. Without usable configured sources or tool results the system can produce a signed, explicit no-data report with no investment signals. It has no built-in access to X or commercial news subscriptions.
 
 ## Connect BSC and Flap
 

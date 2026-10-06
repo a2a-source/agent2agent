@@ -1,3 +1,10 @@
+import { verifiedDataAt, evidenceMissing } from "./provenance.js";
+import {
+  AgentRuntime,
+  type Observation,
+  type ResearchTool,
+} from "./agent-runtime.js";
+import { researchTools } from "./research-tools.js";
 import { z } from "zod";
 import {
   ResearchTasks,
@@ -35,6 +42,7 @@ export class Runner {
     readonly llm: Llm,
     readonly config: Config,
     readonly recovery: ResearchOptions = {},
+    readonly react?: AgentRuntime,
   ) {}
   private assertActive(id: string) {
     const a = this.agents.get(id),
@@ -60,7 +68,9 @@ export class Runner {
         now - state.observedAt > this.config.network.stateMaxAgeMs ||
         BigInt(state.bonded) < MIN_STAKE ||
         BigInt(state.exit) > 0n ||
-        funds < this.llm.maximum() * BigInt(this.config.roles.length + 2)
+        funds <
+          (this.react?.maximum() ?? this.llm.maximum()) *
+            BigInt(this.config.roles.length + 2)
       )
         return [];
       return [
@@ -83,7 +93,10 @@ export class Runner {
       () => controller.abort(new Error("epoch deadline expired")),
       Math.max(0, epoch.deadline - Date.now()),
     );
-    const tasks = new ResearchTasks(this.agents.db, this.recovery);
+    const tasks = new ResearchTasks(this.agents.db, {
+      ...this.recovery,
+      resumable: !!this.react,
+    });
     const fence = () => {
       const live = this.epochs.get(epoch.id);
       if (
@@ -94,10 +107,29 @@ export class Runner {
       )
         throw Error("stale research generation or deadline expired");
     };
-    const call = (agent: string, id: string, system: string, input: string) => {
+    const call = async (
+      agent: string,
+      id: string,
+      system: string,
+      input: string,
+      tools: ResearchTool[] = [],
+      observations?: Observation[],
+    ) => {
       fence();
       this.assertActive(epoch.master);
       this.assertActive(agent);
+      if (this.react) {
+        const result = await this.react.run(
+          agent,
+          id,
+          system,
+          input,
+          tools,
+          controller.signal,
+        );
+        if (observations) observations.push(...result.observations);
+        return result.value;
+      }
       return this.llm.call(agent, id, system, input, controller.signal);
     };
     try {
@@ -127,6 +159,7 @@ export class Runner {
         roles,
         master: this.config.masterPrompt,
         llm: this.config.llm,
+        agent: this.config.agent,
       });
       const old = this.agents.db.get<{ version: string }>(
         "run-config",
@@ -224,6 +257,7 @@ export class Runner {
             epoch.deadline,
             fence,
             async (agent, attemptId) => {
+              const observations: Observation[] = [];
               const raw = await call(
                 agent,
                 attemptId,
@@ -239,13 +273,20 @@ export class Runner {
                   },
                   source,
                 }),
+                this.config.agent.toolsEnabled ? researchTools() : [],
+                observations,
               );
               const parsed = reportSchema.parse(raw);
-              if (
-                parsed.sources.some((s) => s !== source.url || source.missing)
-              )
+              const toolSources = observations.flatMap((o) =>
+                Array.isArray(o.output?.sources) ? o.output.sources : [],
+              );
+              const allowed = new Set<string>([
+                ...(!source.missing ? [source.url] : []),
+                ...toolSources.map((s) => s.url),
+              ]);
+              if (parsed.sources.some((s) => !allowed.has(s)))
                 throw Error("fabricated source");
-              if (source.missing) {
+              if (source.missing && toolSources.length === 0) {
                 parsed.sources = [];
                 parsed.missing = [
                   ...new Set([
@@ -254,6 +295,12 @@ export class Runner {
                   ]),
                 ];
               }
+              parsed.missing = [
+                ...new Set([
+                  ...evidenceMissing(source, observations),
+                  ...parsed.missing,
+                ]),
+              ].slice(0, 32);
               const report = { ...parsed, role: role.id, agent };
               fence();
               if (Date.now() - source.at > this.config.network.sourceMaxAgeMs)
@@ -262,6 +309,8 @@ export class Runner {
                 version,
                 view: epoch.view,
                 sourceHash: hash(source),
+                toolSources,
+                verifiedAt: verifiedDataAt(source, parsed.sources),
                 report,
               });
               return report;
@@ -282,7 +331,7 @@ export class Runner {
               attemptId,
               this.config.masterPrompt,
               JSON.stringify({
-                task: "Return JSON {signals:[{chainId,asset,action,allocationBps,rationale,evidence:string[]}],risks:string[]}. Evidence lists report role IDs. No BUY/SELL signals without source-backed reports. Return empty signals when data is absent.",
+                task: "Return JSON {signals:[{chainId,asset,action,allocationBps,rationale,evidence:string[]}],risks:string[]}. Evidence lists report role IDs. No signals without fresh configured market-data sources; web/news citations alone are research only. Return empty signals when data is absent.",
                 reports,
               }),
             ),
@@ -308,10 +357,11 @@ export class Runner {
         committeeHash: hash(epoch.committee),
         configHash: hash({ network: epoch.configHash, research: version }),
         dataAt: Math.min(
-          ...roles.map(
-            (r) =>
-              this.agents.db.get<any>("source", `${epoch.id}:report:${r.id}`)
-                .at,
+          ...roles.map((r) =>
+            verifiedDataAt(
+              this.agents.db.get<any>("source", `${epoch.id}:report:${r.id}`),
+              reports.find((report) => report.role === r.id)!.sources,
+            ),
           ),
         ),
         reports,

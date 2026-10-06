@@ -1,3 +1,4 @@
+import { AgentRuntime } from "../src/agent-runtime.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
@@ -59,12 +60,15 @@ test("three hosted agents finish six research roles with actual compatible HTTP 
       epochs = new Epochs(db),
       config = loadConfig();
     config.llm.endpoint = `http://127.0.0.1:${(endpoint.address() as any).port}`;
+    const llm = new Llm(db, budget, config.llm, "test");
     const runner = new Runner(
       agents,
       budget,
       epochs,
-      new Llm(db, budget, config.llm, "test"),
+      llm,
       config,
+      {},
+      new AgentRuntime(llm, config.agent),
     );
     for (let i = 0; i < 3; i++) {
       const u = agents.createUser(`u${i}`),

@@ -5,13 +5,87 @@ import { hash } from "./protocol.js";
 import { classifyResearchFailure } from "./tasks.js";
 import { readJson } from "./http.js";
 import type { Config } from "./config.js";
+class UnbilledLlmError extends Error {}
 export class Llm {
+  private readonly apiKeys: string[];
+  private keyCursor = 0;
   constructor(
     readonly db: Store,
     readonly budget: Budget,
     readonly config: Config["llm"],
-    private apiKey: string,
-  ) {}
+    apiKeys: string | string[],
+  ) {
+    this.apiKeys = [
+      ...new Set(
+        (Array.isArray(apiKeys) ? apiKeys : [apiKeys])
+          .flatMap((s) => s.split(/\r?\n/))
+          .map((s) => s.trim())
+          .filter((s) => s && !s.startsWith("#")),
+      ),
+    ];
+  }
+  private keyId(key: string) {
+    return hash({ endpoint: this.config.endpoint, key });
+  }
+  private async completion(
+    payload: unknown,
+    signal?: AbortSignal,
+  ): Promise<Response> {
+    const c = this.config;
+    if (!this.apiKeys.length)
+      throw new UnbilledLlmError("LLM API key unavailable");
+    for (let attempt = 0; attempt < this.apiKeys.length; attempt++) {
+      const index = (this.keyCursor + attempt) % this.apiKeys.length,
+        key = this.apiKeys[index]!;
+      const id = this.keyId(key),
+        state = this.db.get<{ retryAt: number }>("llm-key-cooldown", id);
+      if (state && Date.now() < state.retryAt) continue;
+      const day =
+        hash({ endpoint: c.endpoint }) +
+        ":" +
+        new Date().toISOString().slice(0, 10);
+      this.db.transaction(() => {
+        const count =
+          this.db.get<{ count: number }>("llm-request-count", day)?.count ?? 0;
+        if (c.requestLimitPerDay && count >= c.requestLimitPerDay)
+          throw new UnbilledLlmError("LLM request limit reached");
+        this.db.put("llm-request-count", day, { count: count + 1 });
+      });
+      const response = await fetch(
+        c.endpoint.replace(/\/$/, "") + "/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.any([
+            AbortSignal.timeout(c.timeoutMs),
+            ...(signal ? [signal] : []),
+          ]),
+        },
+      );
+      if (response.status !== 429) {
+        this.keyCursor = index;
+        return response;
+      }
+      const header = response.headers.get("retry-after"),
+        seconds = Number(header),
+        date = header ? Date.parse(header) : NaN;
+      const delay =
+        header && Number.isFinite(seconds)
+          ? seconds * 1000
+          : Number.isFinite(date)
+            ? date - Date.now()
+            : 60000;
+      this.db.put("llm-key-cooldown", id, {
+        retryAt: Date.now() + Math.max(1000, Math.min(86400000, delay)),
+      });
+      await response.body?.cancel();
+    }
+    throw new UnbilledLlmError("LLM HTTP 429: all keys rate limited");
+  }
   private probing?: Promise<boolean>;
   private providerKey() {
     return hash({ endpoint: this.config.endpoint, model: this.config.model });
@@ -46,7 +120,9 @@ export class Llm {
         const response = await fetch(
           this.config.endpoint.replace(/\/$/, "") + "/models",
           {
-            headers: { authorization: `Bearer ${this.apiKey}` },
+            headers: {
+              authorization: `Bearer ${this.apiKeys[this.keyCursor] ?? ""}`,
+            },
             signal: AbortSignal.any([
               AbortSignal.timeout(this.config.timeoutMs),
               ...(signal ? [signal] : []),
@@ -99,17 +175,46 @@ export class Llm {
     input: string,
     signal?: AbortSignal,
   ): Promise<any> {
-    const c = this.config;
-    if (Buffer.byteLength(system + input) > c.maxInputBytes)
-      throw Error("LLM input exceeds configured budget");
-    const requestHash = hash({
+    return this.request(
       agent,
-      system,
-      input,
+      id,
+      {
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: input },
+        ],
+        response_format: { type: "json_object" },
+      },
+      false,
+      signal,
+    );
+  }
+  async chat(
+    agent: string,
+    id: string,
+    request: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<any> {
+    return this.request(agent, id, request, true, signal);
+  }
+  private async request(
+    agent: string,
+    id: string,
+    request: Record<string, unknown>,
+    raw: boolean,
+    signal?: AbortSignal,
+  ): Promise<any> {
+    const c = this.config;
+    const payload = {
+      ...request,
       model: c.model,
-      endpoint: c.endpoint,
-      maxOutputTokens: c.maxOutputTokens,
-    });
+      max_tokens: c.maxOutputTokens,
+      stream: false,
+    };
+    delete (payload as any).max_completion_tokens;
+    if (Buffer.byteLength(JSON.stringify(payload)) > c.maxInputBytes)
+      throw Error("LLM input exceeds configured budget");
+    const requestHash = hash({ agent, payload, raw, endpoint: c.endpoint });
     const cached = this.db.get<any>("llm-call", id);
     if (cached) {
       if (cached.requestHash !== requestHash)
@@ -132,29 +237,7 @@ export class Llm {
       });
     });
     try {
-      const response = await fetch(
-        c.endpoint.replace(/\/$/, "") + "/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "content-type": "application/json",
-            authorization: `Bearer ${this.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: c.model,
-            messages: [
-              { role: "system", content: system },
-              { role: "user", content: input },
-            ],
-            max_tokens: c.maxOutputTokens,
-            response_format: { type: "json_object" },
-          }),
-          signal: AbortSignal.any([
-            AbortSignal.timeout(c.timeoutMs),
-            ...(signal ? [signal] : []),
-          ]),
-        },
-      );
+      const response = await this.completion(payload, signal);
       if (!response.ok) throw Error(`LLM HTTP ${response.status}`);
       const body = (await readJson(response)) as any;
       const usage = body.usage;
@@ -170,11 +253,20 @@ export class Llm {
           BigInt(usage.completion_tokens) * BigInt(c.outputWeiPerMillion) +
           999999n) /
         1000000n;
-      const content = body.choices?.[0]?.message?.content;
-      if (typeof content !== "string") throw Error("LLM content unavailable");
-      // Known billed usage is settled even if the model returned malformed JSON.
+      // Usage is known even when a provider returns only reasoning or no answer.
       this.budget.settle(id, actual);
-      const result = JSON.parse(content);
+      const content = body.choices?.[0]?.message?.content;
+      if (
+        typeof content !== "string" &&
+        !(
+          raw &&
+          Array.isArray(body.choices?.[0]?.message?.tool_calls) &&
+          body.choices[0].message.tool_calls.length
+        )
+      )
+        throw Error("LLM content unavailable");
+      // Malformed JSON also retains the already settled usage.
+      const result = raw ? body : JSON.parse(content);
       this.db.put("provider-circuit", this.providerKey(), {
         failures: 0,
         retryAt: 0,
@@ -202,7 +294,8 @@ export class Llm {
           retryAt: Date.now() + Math.min(60000, c.timeoutMs),
         });
       }
-      this.budget.unknown(id);
+      if (e instanceof UnbilledLlmError) this.budget.settle(id, 0n);
+      else this.budget.unknown(id);
       this.db.put("llm-call", id, {
         id,
         agent,

@@ -11,7 +11,7 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
   )
     return "INVALID_OUTPUT";
   if (
-    /LLM HTTP|fetch|LLM usage|LLM content|provider|uncertain LLM|timeout/i.test(
+    /LLM HTTP|LLM request limit|LLM API key|fetch|LLM usage|LLM content|provider|uncertain LLM|timeout/i.test(
       message,
     )
   )
@@ -62,16 +62,19 @@ interface Attempt {
   contextHash?: string;
 }
 export interface ResearchOptions {
+  resumable?: boolean;
   concurrency?: number;
   maxAttempts?: number;
 }
 export class ResearchTasks {
   readonly concurrency: number;
   readonly maxAttempts: number;
+  readonly resumable: boolean;
   constructor(
     readonly db: Store,
     options: ResearchOptions = {},
   ) {
+    this.resumable = options.resumable ?? false;
     this.concurrency = Math.min(
       16,
       Math.max(1, Math.floor(options.concurrency ?? 3)),
@@ -130,19 +133,25 @@ export class ResearchTasks {
           throw Error("research attempt context unavailable");
         return prior.result as T;
       }
-      // A crashed dispatch may already have been billed. Never redispatch its identity.
-      if (prior) {
+      // Only a ledger-backed framework may safely replay an interrupted identity.
+      const resume =
+        this.resumable &&
+        prior?.status === "RUNNING" &&
+        prior.contextHash === contextHash &&
+        workers.includes(prior.agent);
+      if (prior && !resume) {
         last = Error("prior research attempt unavailable");
         continue;
       }
-      const agent = workers[i % workers.length];
+      const agent = resume ? prior!.agent : workers[i % workers.length];
       if (!agent) throw Error("no healthy workers");
-      this.db.insert("research-attempt", id, {
-        id,
-        agent,
-        contextHash,
-        status: "RUNNING",
-      });
+      if (!resume)
+        this.db.insert("research-attempt", id, {
+          id,
+          agent,
+          contextHash,
+          status: "RUNNING",
+        });
       try {
         const result = await work(agent, id);
         fence();

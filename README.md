@@ -18,7 +18,7 @@ Investment returns would be shared with participating computing nodes and invest
 
 ## Run v0.1
 
-The repository now includes a TypeScript/SQLite service, encrypted Agent wallets, a Flap V6 launch adapter, revenue splitting and staking contracts, Smart QSP elections and failover, configurable LLM research, and signed outputs. Investment execution and profit distribution are not enabled.
+The repository now includes a TypeScript/SQLite service, encrypted Agent wallets, a Flap V6 launch adapter, revenue splitting and staking contracts, Smart QSP elections and failover, LangChain/LangGraph ReAct research with configurable OpenRouter models and bounded web tools, and signed outputs. Investment execution and profit distribution are not enabled.
 
 Requires Node.js 22.13+:
 
