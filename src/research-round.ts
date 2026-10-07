@@ -20,6 +20,7 @@ import {
   qspV2Schema,
   type ResearchReport,
 } from "./qsp-v2.js";
+import { toolEvidenceBrief } from "./research-guidance.js";
 import { verifyQsp } from "./qsp.js";
 type Call = (
   agent: string,
@@ -160,13 +161,26 @@ export async function buildResearchPackage(p: {
           agent,
           id,
           role.prompt +
-            " Return JSON {summary:string,missing:string[],evidenceIds:string[],recommendation:string,uncertainty:string}. evidenceIds must cite exact context.evidence ref values such as E1. Do not output a sources field: the protocol resolves IDs to URLs. Keep summaries concise; all amounts must agree with context. Missing data is not zero.",
+            ' Return exactly one valid JSON object, no comments or markdown. Example shape: {"summary":"brief findings","missing":[],"evidenceIds":["E1"],"recommendation":"conditional analysis","uncertainty":"limitations"}. missing and evidenceIds MUST be JSON arrays even for one item, never strings. Replace example values with actual research. evidenceIds must cite exact context.evidence ref values such as E1. Do not output a sources field: the protocol resolves IDs to URLs. Keep summaries concise; all amounts must agree with context. Missing data is not zero.',
           JSON.stringify({
             identity: {
               agent,
               epoch: epoch.id,
               view: epoch.view,
               role: role.id,
+            },
+            researchScope: {
+              assets: context.universe.map((a) => ({
+                symbol: a.symbol,
+                referenceMarket: a.marketSymbol,
+                chainId: context.chainId,
+                asset: a.address,
+              })),
+              objective:
+                "Assess conditional buy/hold/reduce cases for each configured asset. Separate market opportunity from portfolio execution eligibility. Zero capital prevents BUY signals, not research. No holdings prevents SELL. Specify evidence, horizon, trigger and invalidation in recommendation; do not invent prices or demand missing PnL before doing market research.",
+              toolsAvailable: config.agent.toolsEnabled
+                ? contextTools(context, role.id).map((t) => t.name)
+                : [],
             },
             context: promptContext,
           }),
@@ -250,6 +264,7 @@ export async function buildResearchPackage(p: {
               uncertainty,
               evidenceIds,
               missing,
+              additionalEvidence,
             }) => ({
               role,
               summary,
@@ -257,6 +272,7 @@ export async function buildResearchPackage(p: {
               uncertainty,
               evidenceIds,
               missing,
+              toolEvidence: toolEvidenceBrief(db, additionalEvidence),
             }),
           ),
         }),

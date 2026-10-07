@@ -214,3 +214,5 @@ Each round binds an immutable snapshot and the preceding published QSP hash. Cro
 `research.maxAssetBps`, `maxTotalBps`, `minLiquidityUsd`, `maxSlippageBps`, `maxAgeMs` and `validForMs` bound research proposals. Targets are portfolio weights, not order sizes. BUY requires investable capital, a fresh reference price and observed sufficient liquidity; SELL requires actual holdings. Omitted positions remain held and count toward policy limits. An empty signal set is valid and explicitly leaves the portfolio unchanged. Execution, route quotes, approval transactions and distribution remain outside this release.
 
 For on-demand multi-interval closed OHLCV candles, the market specialist has `market_klines`. The same adapter runs via `npm run market:klines -- BTCUSDT 1h 30`; see [parameters and limitations](agents.md#trend-analysis-candle-tool).
+
+See [release verification and contract boundaries](release.md) for clean runtime installation, CLI deployment rehearsal, dependency isolation and funds-contract limitations.

@@ -386,6 +386,20 @@ export function promptSnapshot(c: ResearchContext) {
       asset: m.address,
       priceUSDT: money(m.priceMicros),
       smaUSDT: money(m.smaMicros),
+      priceVsSma:
+        BigInt(m.priceMicros) > BigInt(m.smaMicros)
+          ? "ABOVE"
+          : BigInt(m.priceMicros) < BigInt(m.smaMicros)
+            ? "BELOW"
+            : "EQUAL",
+      smaDeviationPercent:
+        BigInt(m.smaMicros) > 0n
+          ? formatUnits(
+              ((BigInt(m.priceMicros) - BigInt(m.smaMicros)) * 10000n) /
+                BigInt(m.smaMicros),
+              2,
+            )
+          : null,
       changePercent: formatUnits(m.changeBps, 2),
       volatilityPercent: formatUnits(m.volatilityBps, 2),
       samples: m.samples,
@@ -402,6 +416,7 @@ export function promptSnapshot(c: ResearchContext) {
     })),
     news: c.news.map((n) => ({
       title: n.title,
+      url: n.url,
       publishedAt: n.publishedAt,
       evidence: ref(n.evidenceId),
     })),

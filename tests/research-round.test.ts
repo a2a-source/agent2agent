@@ -104,7 +104,40 @@ test("three v2 rounds bind actual context, previous package, independent reports
     req.on("data", (b) => (raw += b));
     req.on("end", () => {
       requests++;
-      const x = JSON.parse(JSON.parse(raw).messages[1].content);
+      const body = JSON.parse(raw);
+      const x = JSON.parse(body.messages[1].content);
+      if (
+        x.identity?.role === "market" &&
+        !body.messages.some((m: any) => m.role === "tool")
+      ) {
+        res.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "snapshot",
+                      type: "function",
+                      function: { name: "research_snapshot", arguments: "{}" },
+                    },
+                  ],
+                },
+                finish_reason: "tool_calls",
+              },
+            ],
+          }),
+        );
+        return;
+      }
+      if (x.reports) {
+        const market = x.reports.find((r: any) => r.role === "market");
+        assert.equal(market.toolEvidence.length, 1);
+        assert.equal(market.toolEvidence[0].tool, "research_snapshot");
+        assert.match(market.toolEvidence[0].contentHash, /^[0-9a-f]{64}$/);
+      }
       const result = x.workers
         ? {
             assignments: x.roles.map((role: string, i: number) => ({
@@ -143,7 +176,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
   const db = new Store(":memory:");
   try {
     config.llm.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
-    config.agent.toolsEnabled = false;
+    config.agent.toolsEnabled = true;
     const keys = generateKeyPairSync("rsa", { modulusLength: 2048 }),
       agents = new Agents(
         db,
@@ -191,14 +224,14 @@ test("three v2 rounds bind actual context, previous package, independent reports
           return (original as any)(...args);
         });
         await assert.rejects(runner.run(epoch), /simulated crash/);
-        assert.equal(requests, 8);
+        assert.equal(requests, 9);
         t.mock.timers.enable({
           apis: ["Date"],
           now: Date.now() + config.research.maxAgeMs + 1,
         });
         try {
           await assert.rejects(runner.run(epoch), /data expired/);
-          assert.equal(requests, 8);
+          assert.equal(requests, 9);
         } finally {
           t.mock.timers.reset();
         }
@@ -253,7 +286,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
       );
       prior = out;
     }
-    assert.equal(requests, 24);
+    assert.equal(requests, 27);
     assert.equal(db.all("research-context").length, 3);
   } finally {
     db.close();

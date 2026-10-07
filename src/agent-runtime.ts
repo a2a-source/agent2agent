@@ -43,6 +43,7 @@ export class AgentRuntime {
     const db = this.llm.db,
       c = this.llm.config;
     const fingerprint = hash({
+      protocol: "bounded-research/2",
       agent,
       system,
       input,
@@ -91,6 +92,15 @@ export class AgentRuntime {
           if (turn > this.config.maxToolRounds)
             throw Error("Agent model call limit exceeded");
           const body = JSON.parse(String(init?.body));
+          if (turn === this.config.maxToolRounds && tools.length) {
+            delete body.tools;
+            body.tool_choice = "none";
+            body.messages.push({
+              role: "user",
+              content:
+                "Tool budget exhausted. Do not request any more tools. Return the required final JSON now using only observations already available; explicitly state missing evidence.",
+            });
+          }
           let response;
           try {
             response = await this.llm.chat(
@@ -106,8 +116,12 @@ export class AgentRuntime {
           if (
             turn === this.config.maxToolRounds &&
             response.choices?.[0]?.message?.tool_calls?.length
-          )
-            throw Error("Agent tool round limit exceeded");
+          ) {
+            transportError = Error(
+              "LLM provider requested tools after tool budget exhausted",
+            );
+            throw transportError;
+          }
           return new Response(JSON.stringify(response), {
             status: 200,
             headers: { "content-type": "application/json" },

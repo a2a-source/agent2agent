@@ -125,7 +125,14 @@ test("model context renders reference prices and basis points without scale ambi
       },
     ],
     evidence: [{ id: "m", kind: "market", asOf: 1 }],
-    news: [],
+    news: [
+      {
+        title: "Policy",
+        url: "https://example.com/policy",
+        publishedAt: 1,
+        evidenceId: "m",
+      },
+    ],
     liquidity: [],
     changes: { positions: [], prices: [] },
     policy: {},
@@ -136,4 +143,7 @@ test("model context renders reference prices and basis points without scale ambi
   assert.equal(p.markets[0].priceUSDT, "2565.08");
   assert.equal(p.markets[0].changePercent, "0.22");
   assert.equal(p.markets[0].smaUSDT, "2564.039");
+  assert.equal(p.markets[0].priceVsSma, "ABOVE");
+  assert.equal(p.markets[0].smaDeviationPercent, "0.04");
+  assert.equal(p.news[0].url, "https://example.com/policy");
 });
