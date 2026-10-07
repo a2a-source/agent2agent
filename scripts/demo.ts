@@ -53,6 +53,7 @@ try {
     budget = new Budget(db),
     epochs = new Epochs(db),
     config = loadConfig();
+  config.research.enabled = false;
   // Explicit synthetic exchange rate for the offline demonstration.
   config.llm.bnbUsdMicros = "1000000000";
   config.llm.endpoint = `http://127.0.0.1:${(model.address() as any).port}`;

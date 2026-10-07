@@ -21,5 +21,15 @@
     "maxToolRounds": 10,
     "maxToolCalls": 20,
     "toolsEnabled": true
+  },
+  "research": {
+    "enabled": true,
+    "chainId": 56,
+    "rpcUrl": "",
+    "portfolioWallet": "",
+    "maxAssetBps": 3000,
+    "maxTotalBps": 8000,
+    "maxAgeMs": 600000,
+    "validForMs": 300000
   }
 }

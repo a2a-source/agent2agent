@@ -47,3 +47,11 @@ The staking contract intentionally exposes no principal-slashing function. Becau
 - [BSC slash rules](https://docs.bnbchain.org/bnb-smart-chain/slashing/slash-rules/): reference for evidence and quarantine categories. BSC monetary thresholds are not copied.
 
 All Agent processes and keys are hosted by one operator. Thresholds and multiple signatures would not by themselves establish independent trust domains. Live contract fees, permissions and implementations must be checked separately from these coordination rules.
+
+## QSP v2 research payload
+
+New research rounds emit `a2a-qsp/2`; historical v1 payloads remain verifiable with their original signing domain. The v2 signing message is `A2A-QSP:2:<Agent chainId>:<canonical payload hash>`. The asset research chain is independently recorded in `context.chainId`.
+
+V2 adds an immutable `context` and `contextHash`, portfolio quantities/valuation/known or missing accounting, timestamped market metrics, DEX observations, evidence hashes and previous-QSP linkage. Every role report includes identity, summary, recommendation, uncertainty, missing inputs and evidence references. `masterSummary` contains the final summary, one accept/reject/qualify decision per role and retained disagreements. `signals` contain explicit chain/contract, action, target weight, evidence, conditions, invalidation and slippage bound. `createdAt`/`validUntil` define proposal validity. `executed` remains false.
+
+Protocol validation checks structure, reference membership, data/context binding, current holdings and quantitative policy. It does not prove that external publishers are truthful or that a model's prose is factually correct; narrative conclusions must be read alongside the authoritative structured context. Full tool observations and source snapshots are auditable records, not hidden model reasoning. A proposal is neither an order nor proof of a fill, and QSP linkage is not a claim of independent BFT consensus.

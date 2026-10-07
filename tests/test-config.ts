@@ -3,5 +3,6 @@ import { loadConfig as load } from "../src/config.js";
 export function loadConfig() {
   const c = load();
   c.llm.bnbUsdMicros = "250000000000000000000";
+  c.research.enabled = false;
   return c;
 }

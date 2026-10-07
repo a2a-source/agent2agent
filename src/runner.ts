@@ -1,3 +1,4 @@
+import { buildResearchPackage } from "./research-round.js";
 import { verifiedDataAt, evidenceMissing } from "./provenance.js";
 import {
   AgentRuntime,
@@ -161,6 +162,7 @@ export class Runner {
         master: this.config.masterPrompt,
         llm: this.config.llm,
         agent: this.config.agent,
+        research: this.config.research,
       });
       const old = this.agents.db.get<{ version: string }>(
         "run-config",
@@ -169,6 +171,21 @@ export class Runner {
       if (old && old.version !== version)
         throw Error("configuration changed during epoch");
       if (!old) this.agents.db.insert("run-config", epoch.id, { version });
+      if (this.config.research.enabled) {
+        const output = await buildResearchPackage({
+          agents: this.agents,
+          epochs: this.epochs,
+          config: this.config,
+          epoch,
+          workers,
+          version,
+          tasks,
+          call,
+          fence,
+          signal: controller.signal,
+        });
+        return await this.publish(epoch, output, controller);
+      }
       const plan = await tasks.execute(
         `${runId}:plan`,
         [epoch.master],
@@ -369,10 +386,6 @@ export class Runner {
         ...result,
         executed: false,
       });
-      const wallet = this.agents.db.get<EncryptedWallet>(
-        "wallet",
-        epoch.master,
-      )!;
       if (
         roles.some(
           (r) =>
@@ -383,38 +396,7 @@ export class Runner {
         )
       )
         throw Error("research data expired");
-      if (controller.signal.aborted || Date.now() >= epoch.deadline)
-        throw Error("epoch deadline expired");
-      const message = signingMessage(this.config.chain.id, output),
-        commitId = `${epoch.id}:${epoch.view}:${epoch.master}`;
-      // Persist a one-payload signing intent before invoking the private key.
-      this.agents.db.transaction(() => {
-        this.assertActive(epoch.master);
-        const prior = this.agents.db.get<{ message: string }>(
-          "commitment",
-          commitId,
-        );
-        if (prior && prior.message !== message)
-          throw Error("conflicting final commitment");
-        if (!prior) this.agents.db.insert("commitment", commitId, { message });
-        const live = this.epochs.get(epoch.id);
-        if (live.view !== epoch.view || live.status !== "RUNNING")
-          throw Error("stale signing generation");
-      });
-      const signature = await this.agents.vault.withWallet(wallet, (w) =>
-        w.signMessage(message),
-      );
-      if (!verifyQsp(this.config.chain.id, output, signature, wallet.address))
-        throw Error("signature verification failed");
-      this.assertActive(epoch.master);
-      this.epochs.publish(
-        epoch.id,
-        epoch.view,
-        epoch.master,
-        output,
-        signature,
-      );
-      return output;
+      return await this.publish(epoch, output, controller);
     } catch (e) {
       this.epochs.incident(
         `${runId}:failure`,
@@ -427,5 +409,38 @@ export class Runner {
       this.controller = undefined;
       this.busy = false;
     }
+  }
+  private async publish<T extends z.infer<typeof qspSchema>>(
+    epoch: Epoch,
+    output: T,
+    controller: AbortController,
+  ) {
+    const wallet = this.agents.db.get<EncryptedWallet>("wallet", epoch.master)!;
+    if (controller.signal.aborted || Date.now() >= epoch.deadline)
+      throw Error("epoch deadline expired");
+    const message = signingMessage(this.config.chain.id, output),
+      commitId = `${epoch.id}:${epoch.view}:${epoch.master}`;
+    // Persist a one-payload signing intent before invoking the private key.
+    this.agents.db.transaction(() => {
+      this.assertActive(epoch.master);
+      const prior = this.agents.db.get<{ message: string }>(
+        "commitment",
+        commitId,
+      );
+      if (prior && prior.message !== message)
+        throw Error("conflicting final commitment");
+      if (!prior) this.agents.db.insert("commitment", commitId, { message });
+      const live = this.epochs.get(epoch.id);
+      if (live.view !== epoch.view || live.status !== "RUNNING")
+        throw Error("stale signing generation");
+    });
+    const signature = await this.agents.vault.withWallet(wallet, (w) =>
+      w.signMessage(message),
+    );
+    if (!verifyQsp(this.config.chain.id, output, signature, wallet.address))
+      throw Error("signature verification failed");
+    this.assertActive(epoch.master);
+    this.epochs.publish(epoch.id, epoch.view, epoch.master, output, signature);
+    return output;
   }
 }

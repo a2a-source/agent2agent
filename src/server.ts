@@ -61,6 +61,19 @@ export function createApi(s: Services) {
         send(403, { error: "admin required" });
         return;
       }
+      if (
+        path.startsWith("/admin/research/evidence/") &&
+        req.method === "GET"
+      ) {
+        const id = path.slice("/admin/research/evidence/".length);
+        if (!/^[a-f0-9]{64}$/.test(id)) {
+          send(400, { error: "invalid evidence id" });
+          return;
+        }
+        const record = s.agents.db.get("research-evidence", id);
+        send(record ? 200 : 404, record ?? { error: "evidence not found" });
+        return;
+      }
       if (path === "/admin/users" && req.method === "POST") {
         send(
           201,

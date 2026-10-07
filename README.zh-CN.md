@@ -31,6 +31,8 @@ npm run init
 npm start
 ```
 
+真实研究输出 QSP v2，包含持仓上下文、六个角色报告、Master 总结、证据引用及受约束的目标仓位。BTCB/ETH/WBNB 行情与 DEX 观察均为只读；缺失成本和收益记录时明确标记未知。研究钱包与 RPC 配置见运行说明。
+
 默认禁用链上写入；demo 使用明确标记的模拟链状态与 LLM。参见[运行与 API 说明](docs/usage.md)及[首版协议行为](docs/protocol.md)。以下章节保留项目愿景，未实现的投资与分红能力不属于当前版本。
 
 ## 目录

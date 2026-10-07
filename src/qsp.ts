@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { isAddress, verifyMessage } from "ethers";
+import { qspV2Schema } from "./qsp-v2.js";
 import { hash } from "./protocol.js";
 export const reportSchema = z
   .object({
@@ -31,7 +32,7 @@ export const synthesisSchema = z
         .reduce((n, x) => n + x.allocationBps, 0) <= 10000,
     "aggregate BUY allocation exceeds 100%",
   );
-export const qspSchema = z
+export const qspV1Schema = z
   .object({
     version: z.literal("a2a-qsp/1"),
     epoch: z.string(),
@@ -48,8 +49,9 @@ export const qspSchema = z
     executed: z.literal(false),
   })
   .strict();
+export const qspSchema = z.union([qspV1Schema, qspV2Schema]);
 export function signingMessage(chainId: number, payload: unknown) {
-  return `A2A-QSP:1:${chainId}:${hash(payload)}`;
+  return `A2A-QSP:${(payload as any)?.version === "a2a-qsp/2" ? "2" : "1"}:${chainId}:${hash(payload)}`;
 }
 export function verifyQsp(
   chainId: number,

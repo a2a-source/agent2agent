@@ -183,7 +183,9 @@ async function searchText(url: string, signal?: AbortSignal) {
   const u = new URL(url);
   if (!(
     (u.origin === "https://news.google.com" && u.pathname === "/rss/search") ||
-    (u.origin === "https://html.duckduckgo.com" && u.pathname === "/html/")
+    (u.origin === "https://html.duckduckgo.com" && u.pathname === "/html/") ||
+    (u.origin === "https://www.federalreserve.gov" &&
+      u.pathname === "/feeds/press_monetary.xml")
   ))
     throw Error("search endpoint not permitted");
   const response = await networkFetch(u, {
@@ -284,4 +286,14 @@ export function researchTools(): ResearchTool[] {
       },
     },
   ];
+}
+
+/** Fixed official macro announcements; dates are publication dates, not live market prices. */
+export async function macroAnnouncements(signal?: AbortSignal) {
+  return parseNews(
+    await searchText(
+      "https://www.federalreserve.gov/feeds/press_monetary.xml",
+      signal,
+    ),
+  );
 }

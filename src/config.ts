@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { assetSchema, assertResearchAssets } from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
@@ -82,6 +83,25 @@ const schema = z.object({
     priceFeed: z.string().default(""),
     priceMaxAgeSeconds: integer.default(3900),
   }),
+  research: z.object({
+    enabled: z.boolean().default(true),
+    chainId: integer.default(56),
+    rpcUrl: z.string().default(""),
+    portfolioWallet: z.string().default(""),
+    accountingFile: z.string().default(""),
+    gasReserveWei: wei.default("1000000000000000"),
+    maxAgeMs: integer.default(600000),
+    maxAssetBps: integer.max(10000).default(3000),
+    maxTotalBps: integer.max(10000).default(8000),
+    minLiquidityUsd: z.number().int().safe().nonnegative().default(1000000),
+    maxSlippageBps: integer.max(10000).default(100),
+    validForMs: integer.default(300000),
+    newsQuery: z
+      .string()
+      .max(300)
+      .default("Bitcoin Ethereum BNB macro economy when:1d"),
+    assets: z.array(assetSchema).min(1).max(24),
+  }),
   masterPrompt: z.string().min(1),
   roles: z
     .array(
@@ -109,8 +129,16 @@ export function loadConfig(path?: string): Config {
     agent: { ...base.agent, ...override.agent },
     recovery: { ...base.recovery, ...override.recovery },
     settlement: { ...base.settlement, ...override.settlement },
+    research: { ...base.research, ...override.research },
   });
   if (new Set(c.roles.map((r) => r.id)).size !== c.roles.length)
     throw Error("duplicate roles");
+  if (
+    new Set(c.research.assets.map((a) => a.address.toLowerCase())).size !==
+    c.research.assets.length
+  )
+    throw Error("duplicate research assets");
+  if (c.research.enabled)
+    assertResearchAssets(c.research.chainId, c.research.assets);
   return c;
 }

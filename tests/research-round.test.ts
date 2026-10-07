@@ -1,0 +1,263 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { generateKeyPairSync } from "node:crypto";
+import { createServer } from "node:http";
+import { Store } from "../src/store.js";
+import { Agents } from "../src/agents.js";
+import { WalletVault } from "../src/wallet.js";
+import { Budget } from "../src/budget.js";
+import { Epochs } from "../src/epochs.js";
+import { Runner } from "../src/runner.js";
+import { Llm } from "../src/llm.js";
+import { AgentRuntime } from "../src/agent-runtime.js";
+import { loadConfig } from "./test-config.js";
+import { ResearchData } from "../src/research-data.js";
+import {
+  portfolioSnapshot,
+  compareContext,
+  contextSchema,
+  evidence,
+} from "../src/research-context.js";
+import { hash } from "../src/protocol.js";
+import { qspV2Schema } from "../src/qsp-v2.js";
+import { verifyQsp } from "../src/qsp.js";
+test("three v2 rounds bind actual context, previous package, independent reports and Master decisions", async (t) => {
+  const config = loadConfig();
+  config.research.enabled = true;
+  config.network.timeoutMs = 3600000;
+  config.network.stateMaxAgeMs = 3600000;
+  let round = 0;
+  t.mock.method(ResearchData.prototype, "collect", async (previous: any) => {
+    round++;
+    const now = Date.now(),
+      asset = config.research.assets[0]!;
+    const price = String(1000000 + round * 100000),
+      qty = round === 1 ? "0" : "1000000000000000000";
+    const proof = evidence("market", "https://example.com/market", now, {
+      round,
+    });
+    const portfolio = portfolioSnapshot(
+      [{ ...asset, quantity: qty, priceMicros: price, costMicros: null }],
+      true,
+    );
+    const markets = [
+      {
+        ...asset,
+        priceMicros: price,
+        asOf: now,
+        changeBps: 100,
+        volatilityBps: 50,
+        smaMicros: price,
+        samples: 60,
+        evidenceId: proof.id,
+      },
+    ];
+    return contextSchema.parse({
+      version: "research-context/1",
+      at: now,
+      chainId: 56,
+      universe: config.research.assets,
+      portfolio,
+      portfolioIdentity: {
+        wallet: "test",
+        scope: "CONFIGURED_ASSETS_AND_NATIVE",
+        blockNumber: round,
+        blockHash: "block" + round,
+        nativeBalanceWei: "0",
+        gasReserveWei: "0",
+        stakeExcluded: true,
+      },
+      markets,
+      liquidity: [],
+      news: [],
+      evidence: [proof],
+      missing: ["No live liquidity"],
+      previous: previous
+        ? {
+            epoch: previous.epoch,
+            hash: previous.hash,
+            signals: previous.signals,
+          }
+        : null,
+      changes: compareContext(previous?.context, {
+        portfolio,
+        markets,
+        chainId: 56,
+        universe: config.research.assets,
+        portfolioIdentity: {
+          wallet: "test",
+          scope: "CONFIGURED_ASSETS_AND_NATIVE",
+        },
+      }),
+      policy: {
+        maxAssetBps: 3000,
+        maxTotalBps: 8000,
+        validForMs: 300000,
+        minLiquidityUsd: 1000000,
+        maxSlippageBps: 100,
+      },
+    });
+  });
+  let requests = 0;
+  const server = createServer((req, res) => {
+    let raw = "";
+    req.on("data", (b) => (raw += b));
+    req.on("end", () => {
+      requests++;
+      const x = JSON.parse(JSON.parse(raw).messages[1].content);
+      const result = x.workers
+        ? {
+            assignments: x.roles.map((role: string, i: number) => ({
+              role,
+              agent: x.workers[i % x.workers.length],
+            })),
+          }
+        : x.reports
+          ? {
+              summary: `Portfolio ${x.context.portfolio.status}; value ${x.context.portfolio.valueMicros}`,
+              decisions: x.reports.map((r: any) => ({
+                role: r.role,
+                decision: "QUALIFY",
+                reason: "Data gaps preserved",
+              })),
+              disagreements: [],
+              signals: [],
+              risks: ["No verified liquidity"],
+            }
+          : {
+              summary: `Observed ${x.context.portfolio.status}`,
+              sources: [],
+              missing: [],
+              evidenceIds: [x.context.evidence[0].id],
+              recommendation: "Observe",
+              uncertainty: "Liquidity unavailable",
+            };
+      res.end(
+        JSON.stringify({
+          choices: [{ message: { content: JSON.stringify(result) } }],
+        }),
+      );
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const db = new Store(":memory:");
+  try {
+    config.llm.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
+    config.agent.toolsEnabled = false;
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 }),
+      agents = new Agents(
+        db,
+        new WalletVault(
+          keys.publicKey.export({ type: "spki", format: "pem" }).toString(),
+          keys.privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+          "test",
+        ),
+      ),
+      budget = new Budget(db),
+      epochs = new Epochs(db),
+      llm = new Llm(db, budget, config.llm, "test"),
+      runner = new Runner(
+        agents,
+        budget,
+        epochs,
+        llm,
+        config,
+        {},
+        new AgentRuntime(llm, config.agent),
+      );
+    for (let i = 0; i < 3; i++) {
+      const u = agents.createUser("u" + i),
+        a = agents.create(u.id, "x", { name: "A", symbol: "A", meta: "bafy" });
+      agents.update(a.id, { launch: "CONFIRMED", token: a.wallet });
+      budget.credit(a.id, a.id, 10000000n);
+      db.put("chain-state", a.id, {
+        known: true,
+        bonded: "300000000000000000",
+        exit: "0",
+        observedAt: Date.now(),
+      });
+    }
+    let prior: any;
+    for (let i = 0; i < 3; i++) {
+      const epoch = epochs.open(i, runner.candidates(), config.network);
+      if (i === 0) {
+        const original = agents.vault.withWallet.bind(agents.vault);
+        let first = true;
+        t.mock.method(agents.vault, "withWallet", (...args: any[]) => {
+          if (first) {
+            first = false;
+            throw Error("simulated crash after commitment");
+          }
+          return (original as any)(...args);
+        });
+        await assert.rejects(runner.run(epoch), /simulated crash/);
+        assert.equal(requests, 8);
+        t.mock.timers.enable({
+          apis: ["Date"],
+          now: Date.now() + config.research.maxAgeMs + 1,
+        });
+        try {
+          await assert.rejects(runner.run(epoch), /data expired/);
+          assert.equal(requests, 8);
+        } finally {
+          t.mock.timers.reset();
+        }
+        await new Promise((r) => setTimeout(r, 5));
+      }
+      const out = await runner.run(epoch);
+      assert.equal(out.version, "a2a-qsp/2");
+      if (out.version !== "a2a-qsp/2") throw Error("version");
+      assert.equal(out.reports.length, 6);
+      assert.equal(
+        qspV2Schema.safeParse({
+          ...out,
+          masterSummary: { ...out.masterSummary, decisions: [] },
+        }).success,
+        false,
+      );
+      assert.equal(
+        qspV2Schema.safeParse({ ...out, dataAt: out.dataAt + 1 }).success,
+        false,
+      );
+      assert.equal(out.masterSummary.decisions.length, 6);
+      assert.equal(out.contextHash, hash(out.context));
+      assert(
+        verifyQsp(
+          config.chain.id,
+          out,
+          epochs.get(epoch.id).signature!,
+          agents.get(epoch.master).wallet,
+        ),
+      );
+      assert.equal(out.context.portfolio.status, i === 0 ? "EMPTY" : "FUNDED");
+      assert.equal(out.context.portfolio.returnBps, null);
+      if (prior) {
+        assert.equal(out.context.previous?.hash, hash(prior));
+        assert.equal(
+          out.context.changes.positions[0]?.quantityDelta,
+          i === 1 ? "1000000000000000000" : "0",
+        );
+        assert.equal(out.context.changes.investmentReturnBps, null);
+        assert(out.context.changes.prices[0]!.changeBps > 0);
+      }
+      const changed = structuredClone(out);
+      changed.masterSummary.summary = "tampered";
+      assert.equal(
+        verifyQsp(
+          config.chain.id,
+          changed,
+          epochs.get(epoch.id).signature!,
+          agents.get(epoch.master).wallet,
+        ),
+        false,
+      );
+      prior = out;
+    }
+    assert.equal(requests, 24);
+    assert.equal(db.all("research-context").length, 3);
+  } finally {
+    db.close();
+    server.closeAllConnections();
+    await new Promise<void>((r) => server.close(() => r()));
+  }
+});

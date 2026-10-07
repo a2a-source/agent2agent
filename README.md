@@ -31,6 +31,8 @@ npm run init
 npm start
 ```
 
+Live research emits QSP v2 with portfolio context, six specialist reports, Master decisions, evidence references and bounded target weights. BTCB/ETH/WBNB reference data and DEX observations are read-only; unknown costs and returns remain explicit. Configure the research wallet and RPC as described in the usage guide.
+
 Chain writes are disabled by default. The demo explicitly simulates chain state and LLM responses. See [operations and API usage](docs/usage.md) and [implemented protocol behavior](docs/protocol.md). The sections below retain the broader project vision, including capabilities outside this release.
 
 ## Contents
