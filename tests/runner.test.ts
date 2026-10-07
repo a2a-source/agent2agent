@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { Llm } from "../src/llm.js";
 import { qspSchema } from "../src/qsp.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "./test-config.js";
 import { Store } from "../src/store.js";
 import { Budget } from "../src/budget.js";
-test("compatible LLM calls settle actual usage and ambiguous failures retain reservation", async () => {
+test("compatible LLM calls charge a fixed request fee and failures cannot replay", async () => {
   let failure = false;
   const server = createServer((req, res) => {
     req.resume();
@@ -37,8 +37,6 @@ test("compatible LLM calls settle actual usage and ambiguous failures retain res
   budget.credit("a", "fund", 100000n);
   const cfg = loadConfig();
   cfg.llm.endpoint = `http://127.0.0.1:${address.port}`;
-  cfg.llm.inputWeiPerMillion = "1000000";
-  cfg.llm.outputWeiPerMillion = "2000000";
   cfg.llm.maxInputBytes = 1000;
   cfg.llm.maxOutputTokens = 100;
   const llm = new Llm(db, budget, cfg.llm, "key");

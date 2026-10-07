@@ -77,8 +77,7 @@ const schema = z.object({
     timeoutMs: integer,
     maxInputBytes: integer.max(1000000),
     maxOutputTokens: integer.max(32000),
-    inputWeiPerMillion: wei,
-    outputWeiPerMillion: wei,
+    bnbUsdMicros: wei.default("0"),
   }),
   masterPrompt: z.string().min(1),
   roles: z

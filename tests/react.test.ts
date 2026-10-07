@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { Llm } from "../src/llm.js";
 import { Store } from "../src/store.js";
 import { Budget } from "../src/budget.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "./test-config.js";
 test("budgeted chat preserves tool calls, accounts every turn and replays cached results", async () => {
   let calls = 0;
   const server = createServer((req, res) => {
@@ -42,8 +42,6 @@ test("budgeted chat preserves tool calls, accounts every turn and replays cached
     budget = new Budget(db),
     cfg = loadConfig().llm;
   cfg.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
-  cfg.inputWeiPerMillion = "1000000";
-  cfg.outputWeiPerMillion = "2000000";
   budget.credit("agent", "fund", 10000000n);
   const llm = new Llm(db, budget, cfg, "local-test");
   try {
@@ -71,7 +69,7 @@ test("budgeted chat preserves tool calls, accounts every turn and replays cached
   }
 });
 
-test("LangChain ReAct executes a tool, observes it, accounts both calls and resumes without replay", async () => {
+test("LangChain ReAct runs without usage, charges both requests and resumes without replay", async () => {
   const { AgentRuntime } = await import("../src/agent-runtime.js");
   const { z } = await import("zod");
   let calls = 0,
@@ -114,7 +112,6 @@ test("LangChain ReAct executes a tool, observes it, accounts both calls and resu
                   },
             },
           ],
-          usage: { prompt_tokens: 20, completion_tokens: 10 },
         }),
       );
     });
@@ -152,6 +149,11 @@ test("LangChain ReAct executes a tool, observes it, accounts both calls and resu
     assert.equal(calls, 2);
     assert.equal(tools, 1);
     assert.equal(db.all("llm-call").length, 2);
+    assert.equal(
+      db.all<any>("llm-request").reduce((n, r) => n + BigInt(r.usdMicros), 0n),
+      20000n,
+    );
+    assert.equal(budget.available("a"), 99999999920n);
     // Simulate process death after persisted turns/tools but before final runtime result.
     db.remove("agent-result", "research");
 
@@ -292,7 +294,7 @@ test("ReAct stops tools at the configured round bound even if the model keeps re
   }
 });
 
-test("known token usage is settled even when provider supplies no assistant content", async () => {
+test("request fees are independent of usage, absent content and provider errors", async () => {
   let withError = false;
   const server = createServer((req, res) => {
     req.resume();
@@ -312,8 +314,6 @@ test("known token usage is settled even when provider supplies no assistant cont
     budget = new Budget(db),
     c = loadConfig().llm;
   c.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
-  c.inputWeiPerMillion = "1000000";
-  c.outputWeiPerMillion = "2000000";
   budget.credit("a", "fund", 1000000n);
   try {
     const llm = new Llm(db, budget, c, "test");
@@ -377,7 +377,7 @@ test("provider failures retain only bounded diagnostic metadata, including HTTP 
     assert.equal(row.diagnostic.generationId, "gen-fixture");
     assert.equal(JSON.stringify(row).includes("SECRET"), false);
     assert.deepEqual(received.reasoning, { effort: "none" });
-    assert.ok(BigInt(budget.account("a").reserved) > 0n);
+    assert.equal(budget.account("a").reserved, "0");
   } finally {
     db.close();
     server.closeAllConnections();

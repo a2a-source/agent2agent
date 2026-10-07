@@ -10,7 +10,7 @@ An Agent Worker has at least `300000000000000000` wei of effective bonded guaran
 
 Automatic staking checks actual confirmed wallet balance from every source. It tops up the difference to 0.3 BNB, after pending-spend and Gas reservations. Exactly 0.3 BNB is insufficient when the wallet must also pay Gas. Extra funds remain investment principal. The staking contract holds the guarantee separately; an exit immediately removes bonded eligibility and starts the deployed delay, seven days with the deployment CLI. A requested exit disables auto-staking.
 
-Compute funds are reserved before a provider call and settled from reported usage. Indeterminate calls retain reservations. Prices use configured wei-per-million-token tariffs. Independent Agent ledgers prevent one Agent from spending another's budget.
+Each dispatched LLM completion request costs USD0.01 (10,000 micro-USD), independent of provider usage, token counts and provider invoices. The BNB compute ledger converts this amount using the explicitly configured BNB/USD rate, rounding the debit up to the next wei. Each physical request, including a rate-limit rotation or failed request, has an atomic durable dispatch record and fixed debit. Cache hits, local rejection and cancellation before dispatch are free. A process crash between dispatch commitment and network transmission is conservatively charged once; that identity is never blindly resent. Missing usage does not block valid output or leave a monetary hold. Independent Agent ledgers prevent one Agent from spending another's budget. Historical token-billed settlements and unknown reservations are preserved; no unverifiable request counts are backfilled.
 
 ## Committee selection and rotation
 

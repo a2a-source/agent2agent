@@ -10,7 +10,7 @@ import { Budget } from "../src/budget.js";
 import { Epochs } from "../src/epochs.js";
 import { Runner } from "../src/runner.js";
 import { Llm } from "../src/llm.js";
-import { loadConfig } from "../src/config.js";
+import { loadConfig } from "./test-config.js";
 import { verifyQsp } from "../src/qsp.js";
 test("three hosted agents finish six research roles with actual compatible HTTP calls and a signed QSP", async () => {
   const endpoint = createServer((req, res) => {

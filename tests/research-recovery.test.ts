@@ -72,7 +72,7 @@ test("HTTP provider circuit recovers automatically and retry dispatch preserves 
   const { createServer } = await import("node:http");
   const { Llm } = await import("../src/llm.js");
   const { Budget } = await import("../src/budget.js");
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("./test-config.js");
   let unavailable = true,
     probes = 0,
     posts = 0;
@@ -201,7 +201,7 @@ test("real HTTP research dispatch caps parallel provider requests", async () => 
   const { createServer } = await import("node:http");
   const { Llm } = await import("../src/llm.js");
   const { Budget } = await import("../src/budget.js");
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("./test-config.js");
   let inflight = 0,
     peak = 0;
   const server = createServer((req, res) => {
@@ -287,7 +287,7 @@ test("aborting slow provider health probe creates no paid reservation", async ()
   const { createServer } = await import("node:http");
   const { Llm } = await import("../src/llm.js");
   const { Budget } = await import("../src/budget.js");
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("./test-config.js");
   const { hash } = await import("../src/protocol.js");
   const server = createServer((_req, res) => {
     setTimeout(() => res.end("{}"), 100);
@@ -329,7 +329,7 @@ test("Runner repairs six-worker collapse over HTTP and replaces only a failed re
   const { generateKeyPairSync } = await import("node:crypto");
   const { Llm } = await import("../src/llm.js");
   const { Budget } = await import("../src/budget.js");
-  const { loadConfig } = await import("../src/config.js");
+  const { loadConfig } = await import("./test-config.js");
   const { Agents } = await import("../src/agents.js");
   const { Epochs } = await import("../src/epochs.js");
   const { Runner } = await import("../src/runner.js");

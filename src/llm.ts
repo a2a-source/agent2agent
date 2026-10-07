@@ -5,7 +5,7 @@ import { hash } from "./protocol.js";
 import { classifyResearchFailure } from "./tasks.js";
 import { readJson } from "./http.js";
 import type { Config } from "./config.js";
-class UnbilledLlmError extends Error {}
+export const REQUEST_USD_MICROS = 10000n;
 export class Llm {
   private readonly apiKeys: string[];
   private keyCursor = 0;
@@ -29,11 +29,12 @@ export class Llm {
   }
   private async completion(
     payload: unknown,
+    agent: string,
+    callId: string,
     signal?: AbortSignal,
   ): Promise<Response> {
     const c = this.config;
-    if (!this.apiKeys.length)
-      throw new UnbilledLlmError("LLM API key unavailable");
+    if (!this.apiKeys.length) throw new Error("LLM API key unavailable");
     for (let attempt = 0; attempt < this.apiKeys.length; attempt++) {
       const index = (this.keyCursor + attempt) % this.apiKeys.length,
         key = this.apiKeys[index]!;
@@ -44,11 +45,35 @@ export class Llm {
         hash({ endpoint: c.endpoint }) +
         ":" +
         new Date().toISOString().slice(0, 10);
+      if (signal?.aborted) throw signal.reason;
+      const price = this.price();
+      const requestId = `${callId}:http:${attempt}`;
       this.db.transaction(() => {
         const count =
           this.db.get<{ count: number }>("llm-request-count", day)?.count ?? 0;
         if (c.requestLimitPerDay && count >= c.requestLimitPerDay)
-          throw new UnbilledLlmError("LLM request limit reached");
+          throw new Error("LLM request limit reached");
+        this.budget.reserve(agent, requestId, price.costWei);
+        this.budget.settle(requestId, price.costWei);
+        this.db.insert("llm-request", requestId, {
+          id: requestId,
+          callId,
+          agent,
+          billing: "fixed-request/1",
+          usdMicros: String(REQUEST_USD_MICROS),
+          costWei: String(price.costWei),
+          bnbUsdMicros: this.config.bnbUsdMicros,
+          keyId: id,
+          dispatchedAt: Date.now(),
+          state: "DISPATCH_COMMITTED",
+        });
+        const call = this.db.get<any>("llm-call", callId)!;
+        this.db.put("llm-call", callId, {
+          ...call,
+          cost: String(BigInt(call.cost ?? "0") + price.costWei),
+          usdMicros: String(BigInt(call.usdMicros ?? "0") + REQUEST_USD_MICROS),
+          requests: (call.requests ?? 0) + 1,
+        });
         this.db.put("llm-request-count", day, { count: count + 1 });
       });
       const response = await fetch(
@@ -84,7 +109,7 @@ export class Llm {
       });
       await response.body?.cancel();
     }
-    throw new UnbilledLlmError("LLM HTTP 429: all keys rate limited");
+    throw new Error("LLM HTTP 429: all keys rate limited");
   }
   private probing?: Promise<boolean>;
   private providerKey() {
@@ -159,14 +184,15 @@ export class Llm {
     })();
     return this.waitForProbe(this.probing, signal);
   }
+  private price() {
+    const rate = BigInt(this.config.bnbUsdMicros);
+    if (rate <= 0n) throw Error("BNB/USD conversion rate is not configured");
+    return {
+      costWei: (REQUEST_USD_MICROS * 1000000000000000000n + rate - 1n) / rate,
+    };
+  }
   maximum() {
-    const c = this.config;
-    return (
-      (BigInt(c.maxInputBytes + 512) * BigInt(c.inputWeiPerMillion) +
-        BigInt(c.maxOutputTokens) * BigInt(c.outputWeiPerMillion) +
-        999999n) /
-      1000000n
-    );
+    return this.price().costWei * BigInt(Math.max(1, this.apiKeys.length));
   }
   async call(
     agent: string,
@@ -217,7 +243,13 @@ export class Llm {
     delete (payload as any).max_completion_tokens;
     if (Buffer.byteLength(JSON.stringify(payload)) > c.maxInputBytes)
       throw Error("LLM input exceeds configured budget");
-    const requestHash = hash({ agent, payload, raw, endpoint: c.endpoint });
+    const requestHash = hash({
+      agent,
+      payload,
+      raw,
+      endpoint: c.endpoint,
+      billing: "fixed-request/1",
+    });
     const cached = this.db.get<any>("llm-call", id);
     if (cached) {
       if (cached.requestHash !== requestHash)
@@ -230,18 +262,21 @@ export class Llm {
     if (signal?.aborted) throw signal.reason;
     if (!providerReady) throw Error("provider circuit open");
     this.db.transaction(() => {
-      this.budget.reserve(agent, id, this.maximum());
       this.db.insert("llm-call", id, {
         id,
         agent,
         requestHash,
         status: "IN_FLIGHT",
+        billing: "fixed-request/1",
+        cost: "0",
+        usdMicros: "0",
+        requests: 0,
         startedAt: Date.now(),
       });
     });
     let diagnostic: Record<string, unknown> | undefined;
     try {
-      const response = await this.completion(payload, signal);
+      const response = await this.completion(payload, agent, id, signal);
       if (!response.ok) throw Error(`LLM HTTP ${response.status}`);
       const body = (await readJson(response)) as any;
       // Never persist provider error text, prompts or reasoning in diagnostics.
@@ -277,20 +312,6 @@ export class Llm {
             `LLM provider error ${diagnostic.providerErrorCode ?? "unknown"}`,
           )
         : undefined;
-      if (
-        !Number.isSafeInteger(usage?.prompt_tokens) ||
-        !Number.isSafeInteger(usage?.completion_tokens) ||
-        usage.prompt_tokens < 0 ||
-        usage.completion_tokens < 0
-      )
-        throw providerError ?? Error("LLM usage unavailable");
-      const actual =
-        (BigInt(usage.prompt_tokens) * BigInt(c.inputWeiPerMillion) +
-          BigInt(usage.completion_tokens) * BigInt(c.outputWeiPerMillion) +
-          999999n) /
-        1000000n;
-      // Usage is known even when a provider returns only reasoning or no answer.
-      this.budget.settle(id, actual);
       if (providerError) throw providerError;
       const content = body.choices?.[0]?.message?.content;
       if (
@@ -302,7 +323,7 @@ export class Llm {
         )
       )
         throw Error("LLM content unavailable");
-      // Malformed JSON also retains the already settled usage.
+      // Every dispatched request was already charged; usage is diagnostics only.
       const result = raw ? body : JSON.parse(content);
       this.db.put("provider-circuit", this.providerKey(), {
         failures: 0,
@@ -315,7 +336,10 @@ export class Llm {
         status: "DONE",
         result,
         usage,
-        cost: String(actual),
+        billing: "fixed-request/1",
+        cost: this.db.get<any>("llm-call", id)!.cost,
+        usdMicros: this.db.get<any>("llm-call", id)!.usdMicros,
+        requests: this.db.get<any>("llm-call", id)!.requests,
       });
       return result;
     } catch (e) {
@@ -331,13 +355,16 @@ export class Llm {
           retryAt: Date.now() + Math.min(60000, c.timeoutMs),
         });
       }
-      if (e instanceof UnbilledLlmError) this.budget.settle(id, 0n);
-      else this.budget.unknown(id);
+
       this.db.put("llm-call", id, {
         id,
         agent,
         requestHash,
         status: "UNKNOWN",
+        billing: "fixed-request/1",
+        cost: this.db.get<any>("llm-call", id)!.cost,
+        usdMicros: this.db.get<any>("llm-call", id)!.usdMicros,
+        requests: this.db.get<any>("llm-call", id)!.requests,
         failure,
         error: e instanceof Error ? e.message : "LLM failed",
         diagnostic,
