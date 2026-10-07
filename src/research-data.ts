@@ -10,6 +10,7 @@ import { z } from "zod";
 import { networkFetch } from "./network.js";
 import { readJson } from "./http.js";
 import { researchTools, macroAnnouncements } from "./research-tools.js";
+import { marketKlinesTool } from "./market-klines.js";
 import { Store } from "./store.js";
 import type { Config } from "./config.js";
 import type { ResearchTool } from "./agent-runtime.js";
@@ -479,5 +480,6 @@ export function contextTools(
       }),
     },
     ...researchTools(),
+    ...(role === "market" ? [marketKlinesTool()] : []),
   ];
 }

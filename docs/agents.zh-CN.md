@@ -20,7 +20,7 @@ LangChain 负责单个 Agent 的模型与工具循环；网络选举、钱包、
 
 ## 角色与职责
 
-六个研究角色共享下节的四种只读工具。`research_snapshot` 按角色返回重点数据；任务初始上下文本身也包含本轮研究信息，这不是数据访问权限隔离。
+六个研究角色共享下节的四种基础只读工具；`market` 角色额外配备 `market_klines`。`research_snapshot` 按角色返回重点数据；任务初始上下文本身也包含本轮研究信息，这不是数据访问权限隔离。
 
 | 角色 ID | 职责 | `research_snapshot` 重点内容 |
 | --- | --- | --- |
@@ -42,6 +42,29 @@ LangChain 负责单个 Agent 的模型与工具循环；网络选举、钱包、
 | `research_snapshot` | 空对象 | 读取本轮冻结的角色数据、证据引用和缺失项 | 不刷新市场数据、不签名、不执行订单 |
 
 工具输出视为不可信外部数据，不作为系统指令。调用结果保存在 SQLite，绑定工具名称和参数，支持审计及重放检查。工具可用不代表每个角色每轮都必须调用；已有上下文足够时，可以直接产出报告。
+
+## 趋势分析 K 线工具
+
+`market` 角色还可以调用 `market_klines`，通过固定的币安官方公开现货接口获取指定交易对的已收盘 K 线。它返回结构化数据而非图片，便于 Agent 读取和后续绘图。
+
+| 参数 | 支持值 | 默认值 |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT`、`ETHUSDT`、`BNBUSDT` | 必填 |
+| `interval` | `1m`、`5m`、`15m`、`1h`、`4h`、`1d` | `1h` |
+| `limit` | 1–100 根已收盘 K 线 | 30 |
+
+返回开盘/收盘时间、开高低收（OHLC）、基础资产成交量、USDT 成交额和成交笔数；价格与成交量保留十进制字符串精度。使用 UTC 时间，排除未收盘 K 线，检查时间连续性、价格范围和数据时效。接口不可用或数据异常时明确返回缺失，不伪造数据、不切换到未验证来源。
+
+工具不需要交易所 API key，并沿用现有工具循环限制和证据记录。其取数时间可能晚于本轮冻结快照，因此属于补充研究证据，不覆盖原有快照或放宽策略校验。当前只接入币安，其他交易所需要后续适配。
+
+同一实现也提供 CLI：
+
+```sh
+npm run market:klines -- BTCUSDT 1h 30
+npm run market:klines -- ETHUSDT 15m 60
+```
+
+源码：[固定 K 线工具](../src/market-klines.ts)、[CLI](../scripts/market-klines.ts)。接口字段参考[币安官方现货行情文档](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/market)。
 
 ## 每轮自动采集的数据
 

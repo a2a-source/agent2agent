@@ -20,7 +20,7 @@ LangChain runs individual model/tool loops. A2A implements elections, wallets, b
 
 ## Roles
 
-All six specialists share the four read-only tools below. `research_snapshot` emphasizes different sections for each role. Initial task context also includes the round's research information; these views are not access-control boundaries.
+All six specialists share the four baseline read-only tools below; `market` additionally receives `market_klines`. `research_snapshot` emphasizes different sections for each role. Initial task context also includes the round's research information; these views are not access-control boundaries.
 
 | Role ID | Responsibility | Snapshot focus |
 | --- | --- | --- |
@@ -42,6 +42,29 @@ All six specialists share the four read-only tools below. `research_snapshot` em
 | `research_snapshot` | Empty object | Frozen role data, evidence references and missing inputs | Does not refresh markets, sign transactions or execute orders |
 
 Tool results are untrusted data, not instructions. SQLite records bind observations to tool names and arguments for audit and replay checks. Availability does not force a tool call: an Agent may produce its report directly when the supplied context is sufficient.
+
+## Trend-analysis candle tool
+
+The `market` specialist can call `market_klines` to retrieve closed candles from a fixed official Binance public spot endpoint. It returns structured chart data rather than an image, suitable for analysis and downstream plotting.
+
+| Parameter | Supported values | Default |
+| --- | --- | --- |
+| `symbol` | `BTCUSDT`, `ETHUSDT`, `BNBUSDT` | Required |
+| `interval` | `1m`, `5m`, `15m`, `1h`, `4h`, `1d` | `1h` |
+| `limit` | 1–100 closed bars | 30 |
+
+Output includes open/close timestamps, OHLC, base-asset volume, USDT quote volume and trade count. Prices and volumes retain decimal-string precision. UTC timestamps, closed bars, continuity, price ranges and freshness are checked. Provider failure or invalid data produces explicit missing information, with no fabricated data or unverified fallback source.
+
+No exchange API key is required. Existing tool-loop limits and evidence recording apply. Retrieval can occur after the frozen round snapshot: candles are supplementary evidence and cannot replace that snapshot or relax strategy validation. Only Binance is currently integrated; other exchanges need additional adapters.
+
+The same implementation is available as a CLI:
+
+```sh
+npm run market:klines -- BTCUSDT 1h 30
+npm run market:klines -- ETHUSDT 15m 60
+```
+
+Sources: [candle tool](../src/market-klines.ts), [CLI](../scripts/market-klines.ts). Endpoint fields follow the [official Binance spot market reference](https://developers.binance.com/en/docs/catalog/core-trading-spot-trading/api/rest-api/market).
 
 ## Automatically collected context
 

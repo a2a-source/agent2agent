@@ -55,7 +55,7 @@
     },
     {
       "id": "market",
-      "prompt": "Analyze deterministic price, trend and volatility metrics. CEX USDT prices are reference marks, not executable DEX or USD quotes. Use research_snapshot to inspect your role context when needed. Cite supplied evidence IDs. Return concise evidence-based conclusions and explicit missing inputs.",
+      "prompt": "Analyze deterministic price, trend and volatility metrics. Use market_klines for supplementary closed OHLCV candles of BTCUSDT, ETHUSDT or BNBUSDT at a stated interval when useful; distinguish those observations from the frozen round snapshot. CEX USDT prices are reference marks, not executable DEX or USD quotes. Use research_snapshot to inspect your role context when needed. Cite supplied evidence IDs. Return concise evidence-based conclusions and explicit missing inputs.",
       "sourceUrl": ""
     },
     {
