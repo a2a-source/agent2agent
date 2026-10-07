@@ -1,3 +1,4 @@
+import { ChainlinkPrice } from "./price.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { TaxSettlement } from "./tax-settlement.js";
 import { configureProxy } from "./network.js";
@@ -28,6 +29,11 @@ const db = new Store(config.database),
   agents = new Agents(db, vault),
   budget = new Budget(db),
   epochs = new Epochs(db);
+const priceProvider = new JsonRpcProvider(
+  config.chain.rpcUrl || undefined,
+  undefined,
+  { cacheTimeout: -1 },
+);
 const llm = new Llm(
     db,
     budget,
@@ -36,6 +42,13 @@ const llm = new Llm(
       (config.llm.apiKeyFile
         ? readFileSync(config.llm.apiKeyFile, "utf8").trim()
         : ""),
+    new ChainlinkPrice(
+      priceProvider,
+      config.chain.id,
+      config.llm.priceFeed,
+      config.llm.priceMaxAgeSeconds,
+      config.chain.confirmations,
+    ),
   ),
   runner = new Runner(
     agents,
@@ -136,10 +149,12 @@ const scheduler = new Scheduler(
     launcher,
     penalties,
     tick: () => scheduler.tick(),
-    minimumCompute:
-      llm.maximum() *
-      BigInt(config.agent.maxToolRounds + 1) *
-      BigInt(config.roles.length + 2),
+    minimumCompute: () =>
+      llm.priceReady()
+        ? llm.maximum() *
+          BigInt(config.agent.maxToolRounds + 1) *
+          BigInt(config.roles.length + 2)
+        : undefined,
     stateMaxAgeMs: config.network.stateMaxAgeMs,
   });
 api.requestTimeout = 30000;
@@ -167,6 +182,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     api.close(() => {
       void scheduler.stop().then(() => {
         db.close();
+        priceProvider.destroy();
         process.exit(0);
       });
     });

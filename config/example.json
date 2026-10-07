@@ -14,7 +14,8 @@
     "endpoint": "https://openrouter.ai/api/v1",
     "model": "openai/gpt-6.1-sol",
     "apiKeyFile": "",
-    "bnbUsdMicros": "0"
+    "priceFeed": "",
+    "priceMaxAgeSeconds": 3900
   },
   "agent": {
     "maxToolRounds": 10,

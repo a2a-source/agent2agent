@@ -217,3 +217,98 @@ test("BNB conversion rounds up one request fee using integer arithmetic", async 
     await f.close();
   }
 });
+test("fresh onchain quote for each dispatch; invalid quote fails closed and can recover", async () => {
+  const f = await fixture((res) =>
+    res.end(
+      JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    ),
+  );
+  let answer = "100000000000",
+    reads = 0,
+    invalid = false;
+  const source = {
+    maxAgeSeconds: 3900,
+    async quote() {
+      reads++;
+      if (invalid) throw Error("BNB/USD oracle unavailable");
+      return {
+        answer,
+        decimals: 8,
+        roundId: String(reads),
+        answeredInRound: String(reads),
+        updatedAt: Math.floor(Date.now() / 1000),
+        blockNumber: 100 + reads,
+        blockHash: "0xabc",
+        chainId: 97,
+        feed: "test-feed",
+        observedAt: Date.now(),
+      };
+    },
+  };
+  try {
+    const llm = new Llm(f.db, f.budget, f.c, "test", source);
+    assert.equal(llm.priceReady(), false);
+    await llm.call("a", "chain-1", "s", "i");
+    answer = "200000000000";
+    await llm.call("a", "chain-2", "s", "i");
+    const rows = f.db.all<any>("llm-request");
+    assert.deepEqual(
+      rows.map((r) => r.costWei),
+      ["10000000000000", "5000000000000"],
+    );
+    assert.deepEqual(
+      rows.map((r) => r.priceQuote.roundId),
+      ["1", "2"],
+    );
+    assert.equal(rows[0].bnbUsdMicros, undefined);
+    await llm.call("a", "chain-2", "s", "i");
+    assert.equal(reads, 2);
+    invalid = true;
+    await assert.rejects(llm.call("a", "chain-3", "s", "i"), /oracle/);
+    assert.equal(f.calls(), 2);
+    assert.equal(llm.priceReady(), false);
+    assert.equal(f.db.all("llm-request").length, 2);
+    invalid = false;
+    await llm.refreshPrice();
+    assert.equal(llm.priceReady(), true);
+  } finally {
+    await f.close();
+  }
+});
+test("oracle wait crossing UTC midnight charges the dispatch day quota", async (t) => {
+  const f = await fixture((res) =>
+    res.end(
+      JSON.stringify({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    ),
+  );
+  const start = Date.parse("2026-10-07T23:59:59Z");
+  t.mock.timers.enable({ apis: ["Date"], now: start });
+  const source = {
+    maxAgeSeconds: 3900,
+    async quote() {
+      t.mock.timers.setTime(start + 2000);
+      return {
+        answer: "100000000000",
+        decimals: 8,
+        roundId: "1",
+        answeredInRound: "1",
+        updatedAt: Math.floor(Date.now() / 1000),
+        blockNumber: 1,
+        blockHash: "0xabc",
+        chainId: 97,
+        feed: "test",
+        observedAt: Date.now(),
+      };
+    },
+  };
+  try {
+    const llm = new Llm(f.db, f.budget, f.c, "test", source);
+    await llm.call("a", "midnight", "s", "i");
+    const rows = f.db.entries<any>("llm-request-count");
+    assert.equal(rows.length, 1);
+    assert(rows[0]!.id.endsWith(":2026-10-08"));
+  } finally {
+    t.mock.timers.reset();
+    await f.close();
+  }
+});

@@ -77,7 +77,10 @@ const schema = z.object({
     timeoutMs: integer,
     maxInputBytes: integer.max(1000000),
     maxOutputTokens: integer.max(32000),
+    // Fixed conversion is only used by offline fixtures; main always injects the oracle.
     bnbUsdMicros: wei.default("0"),
+    priceFeed: z.string().default(""),
+    priceMaxAgeSeconds: integer.default(3900),
   }),
   masterPrompt: z.string().min(1),
   roles: z

@@ -96,7 +96,20 @@ export class Scheduler {
       }
       if (this.stopped) return;
       this.penalties.observeResearch();
-      const providerReady = await this.runner.llm.probeProvider();
+      let priceReady = false;
+      try {
+        await this.runner.llm.refreshPrice();
+        priceReady = this.runner.llm.priceReady();
+      } catch {}
+      db.put(
+        "service-error",
+        "price-oracle",
+        priceReady
+          ? { status: "HEALTHY" }
+          : { at: Date.now(), reason: "PRICE_RETRY_PENDING" },
+      );
+      const providerReady =
+        priceReady && (await this.runner.llm.probeProvider());
       if (this.stopped) return;
       await this.penalties.recoverOperational(async (id) => {
         const a = this.runner.agents.get(id),

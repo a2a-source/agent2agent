@@ -17,7 +17,7 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
   )
     return "PROVIDER";
   if (/ineligible|compute budget/i.test(message)) return "WORKER";
-  if (/source|data expired/i.test(message)) return "DATA";
+  if (/source|data expired|BNB\/USD oracle/i.test(message)) return "DATA";
   return "PLATFORM";
 }
 export function balancedAssignments(

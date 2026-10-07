@@ -5,15 +5,23 @@ import { hash } from "./protocol.js";
 import { classifyResearchFailure } from "./tasks.js";
 import { readJson } from "./http.js";
 import type { Config } from "./config.js";
+import {
+  quoteCost,
+  validateQuote,
+  type PriceQuote,
+  type PriceSource,
+} from "./price.js";
 export const REQUEST_USD_MICROS = 10000n;
 export class Llm {
   private readonly apiKeys: string[];
   private keyCursor = 0;
+  private quoteSnapshot?: PriceQuote;
   constructor(
     readonly db: Store,
     readonly budget: Budget,
     readonly config: Config["llm"],
     apiKeys: string | string[],
+    readonly priceSource?: PriceSource,
   ) {
     this.apiKeys = [
       ...new Set(
@@ -41,12 +49,16 @@ export class Llm {
       const id = this.keyId(key),
         state = this.db.get<{ retryAt: number }>("llm-key-cooldown", id);
       if (state && Date.now() < state.retryAt) continue;
+      if (signal?.aborted) throw signal.reason;
+      const snapshot = this.priceSource
+        ? await this.refreshPrice(signal)
+        : undefined;
+      if (signal?.aborted) throw signal.reason;
+      const price = snapshot ? { costWei: quoteCost(snapshot) } : this.price();
       const day =
         hash({ endpoint: c.endpoint }) +
         ":" +
         new Date().toISOString().slice(0, 10);
-      if (signal?.aborted) throw signal.reason;
-      const price = this.price();
       const requestId = `${callId}:http:${attempt}`;
       this.db.transaction(() => {
         const count =
@@ -62,7 +74,8 @@ export class Llm {
           billing: "fixed-request/1",
           usdMicros: String(REQUEST_USD_MICROS),
           costWei: String(price.costWei),
-          bnbUsdMicros: this.config.bnbUsdMicros,
+          priceQuote: snapshot,
+          bnbUsdMicros: this.priceSource ? undefined : this.config.bnbUsdMicros,
           keyId: id,
           dispatchedAt: Date.now(),
           state: "DISPATCH_COMMITTED",
@@ -184,7 +197,47 @@ export class Llm {
     })();
     return this.waitForProbe(this.probing, signal);
   }
+  async refreshPrice(signal?: AbortSignal) {
+    if (!this.priceSource) return;
+    this.quoteSnapshot = undefined;
+    const bounded = AbortSignal.any([
+      AbortSignal.timeout(this.config.timeoutMs),
+      ...(signal ? [signal] : []),
+    ]);
+    const quote = await this.waitForQuote(this.priceSource.quote(), bounded);
+    validateQuote(quote, this.priceSource.maxAgeSeconds);
+    this.quoteSnapshot = quote;
+    return quote;
+  }
+  private async waitForQuote(p: Promise<PriceQuote>, signal: AbortSignal) {
+    if (signal.aborted) throw Error("BNB/USD oracle unavailable");
+    let abort = () => {};
+    try {
+      return await Promise.race([
+        p,
+        new Promise<never>((_, reject) => {
+          abort = () => reject(Error("BNB/USD oracle unavailable"));
+          signal.addEventListener("abort", abort, { once: true });
+        }),
+      ]);
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
+  }
+  priceReady() {
+    try {
+      this.price();
+      return true;
+    } catch {
+      return false;
+    }
+  }
   private price() {
+    if (this.priceSource) {
+      if (!this.quoteSnapshot) throw Error("BNB/USD oracle unavailable");
+      validateQuote(this.quoteSnapshot, this.priceSource.maxAgeSeconds);
+      return { costWei: quoteCost(this.quoteSnapshot) };
+    }
     const rate = BigInt(this.config.bnbUsdMicros);
     if (rate <= 0n) throw Error("BNB/USD conversion rate is not configured");
     return {

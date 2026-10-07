@@ -17,7 +17,7 @@ interface Services {
   launcher?: FlapLauncher;
   penalties?: Penalties;
   tick?: () => Promise<void>;
-  minimumCompute?: bigint;
+  minimumCompute?: bigint | (() => bigint | undefined);
   stateMaxAgeMs?: number;
 }
 const equal = (a: string, b: string) =>
@@ -100,7 +100,13 @@ export function createApi(s: Services) {
           chainState: state,
           status: known
             ? nodeStatus(
-                available >= (s.minimumCompute ?? 1n) ? available : 0n,
+                (() => {
+                  const min =
+                    typeof s.minimumCompute === "function"
+                      ? s.minimumCompute()
+                      : (s.minimumCompute ?? 1n);
+                  return min !== undefined && available >= min ? available : 0n;
+                })(),
                 BigInt(state.bonded),
                 a.jailed,
               )

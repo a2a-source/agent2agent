@@ -58,6 +58,7 @@ export class Runner {
       throw Error("agent ineligible");
   }
   candidates(now = Date.now()): Candidate[] {
+    if (!this.llm.priceReady()) return [];
     return this.agents.list().flatMap((a) => {
       const state = this.agents.db.get<ChainState>("chain-state", a.id),
         funds = this.budget.available(a.id);

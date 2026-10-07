@@ -48,6 +48,8 @@ test("settlement errors are isolated from provider health and research schedulin
   const runner: any = {
     agents: { db, list: () => [] },
     llm: {
+      refreshPrice: async () => {},
+      priceReady: () => true,
       probeProvider: async () => {
         probed = true;
         return false;
