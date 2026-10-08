@@ -378,6 +378,13 @@ test("three v2 rounds bind actual context, previous package, independent reports
     for (const prompt of masterPrompts) {
       assert(decisionSchema.safeParse(prompt.requiredOutput).success);
       assert.deepEqual(
+        prompt.signalEvidenceRequirements.map((r: any) => [
+          r.asset,
+          r.requiredMarketEvidence,
+        ]),
+        prompt.context.markets.map((m: any) => [m.asset, m.evidence]),
+      );
+      assert.deepEqual(
         Object.keys(prompt.requiredOutput).sort(),
         [
           "sections",

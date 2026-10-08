@@ -24,6 +24,12 @@ export function validationFeedback(error: unknown): ResearchFeedback {
       instruction:
         "Recompute targets from context.facts; respect per-asset and total limits, actual holdings and action direction. Hard policy cannot be cancelled by market conditions.",
     };
+  if (message.includes("signal lacks fresh verified market evidence"))
+    return {
+      code: "EVIDENCE",
+      instruction:
+        "Each signal.evidence must include the matching asset's requiredMarketEvidence from signalEvidenceRequirements (context.markets[].evidence), even for a risk-driven SELL. A portfolio or DEX pool reference alone is insufficient. Keep relevant portfolio/pool references in addition to this frozen market citation.",
+    };
   if (/evidence/i.test(message))
     return {
       code: "EVIDENCE",

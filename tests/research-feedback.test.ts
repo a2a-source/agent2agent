@@ -128,3 +128,12 @@ test("missing top-level evidenceIds is a schema correction, not a source citatio
   assert.equal(validationFeedback(e.error).code, "OUTPUT_FORMAT");
   assert.match(validationFeedback(e.error).instruction, /summary/);
 });
+
+test("missing market citation feedback distinguishes holdings and pools from required price evidence", () => {
+  const feedback = validationFeedback(
+    Error("signal lacks fresh verified market evidence"),
+  );
+  assert.equal(feedback.code, "EVIDENCE");
+  assert.match(feedback.instruction, /signalEvidenceRequirements/);
+  assert.match(feedback.instruction, /portfolio/);
+});

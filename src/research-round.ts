@@ -292,6 +292,12 @@ export async function buildResearchPackage(p: {
           task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
           context: promptContext,
           reportTemplate: config.reportTemplates.master,
+          signalEvidenceRequirements: promptContext.markets.map((m) => ({
+            asset: m.asset,
+            symbol: m.symbol,
+            requiredMarketEvidence: m.evidence,
+            rule: "Every signal for this asset must cite this frozen market evidence, including risk-driven SELL; portfolio or pool citations alone are insufficient.",
+          })),
           requiredOutput: {
             sections: config.reportTemplates.master!.sections.map((s) => ({
               id: s.id,
