@@ -19,7 +19,7 @@ import {
   evidence,
 } from "../src/research-context.js";
 import { hash } from "../src/protocol.js";
-import { qspV2Schema } from "../src/qsp-v2.js";
+import { qspV2Schema, decisionSchema } from "../src/qsp-v2.js";
 import { verifyQsp } from "../src/qsp.js";
 test("three v2 rounds bind actual context, previous package, independent reports and Master decisions", async (t) => {
   const config = loadConfig();
@@ -134,6 +134,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
     });
   });
   let requests = 0;
+  const masterPrompts: any[] = [];
   const server = createServer((req, res) => {
     let raw = "";
     req.on("data", (b) => (raw += b));
@@ -197,6 +198,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
         return;
       }
       if (x.reports) {
+        masterPrompts.push(x);
         const market = x.reports.find((r: any) => r.role === "market");
         assert.equal(market.toolEvidence.length, 4);
         assert(
@@ -373,6 +375,30 @@ test("three v2 rounds bind actual context, previous package, independent reports
       prior = out;
     }
     assert.equal(requests, 33);
+    for (const prompt of masterPrompts) {
+      assert(decisionSchema.safeParse(prompt.requiredOutput).success);
+      assert.deepEqual(
+        Object.keys(prompt.requiredOutput).sort(),
+        [
+          "sections",
+          "summary",
+          "decisions",
+          "disagreements",
+          "signals",
+          "risks",
+        ].sort(),
+      );
+      assert.deepEqual(
+        prompt.requiredOutput.decisions.map((r: any) => r.role),
+        prompt.reports.map((r: any) => r.role),
+      );
+      assert(
+        prompt.requiredOutput.sections.every(
+          (s: any) =>
+            Object.keys(s).sort().join(",") === "content,evidenceRefs,id",
+        ),
+      );
+    }
     assert.equal(db.all("research-context").length, 3);
   } finally {
     db.close();

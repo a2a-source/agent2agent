@@ -149,4 +149,11 @@ test("model context renders reference prices and basis points without scale ambi
   assert.equal(p.markets[0].smaDeviationPercent, "0.04");
   assert.equal(p.news[0].url, "https://example.com/policy");
   assert.equal(p.facts.totalTokens.limitPercent, "80.0");
+  assert.equal(p.news[0].verification, "HEADLINE_ONLY");
+  assert.deepEqual(promptSnapshot(raw, "onchain").news, []);
+  assert.equal(
+    raw.news.length,
+    1,
+    "role filtering must not mutate the signed context",
+  );
 });

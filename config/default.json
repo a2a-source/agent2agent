@@ -36,7 +36,7 @@
     "model": "openai/gpt-6.1-sol",
     "timeoutMs": 60000,
     "maxInputBytes": 160000,
-    "maxOutputTokens": 6000,
+    "maxOutputTokens": 16000,
     "apiKeyFile": "",
     "priceFeed": "",
     "priceMaxAgeSeconds": 3900

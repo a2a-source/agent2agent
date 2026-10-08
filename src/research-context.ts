@@ -349,7 +349,7 @@ export function evidence(
 }
 
 /** Models consume human-readable values; the signed context retains exact base-unit integers. */
-export function promptSnapshot(c: ResearchContext) {
+export function promptSnapshot(c: ResearchContext, role?: string) {
   const money = (v: string | null) => (v === null ? null : formatUnits(v, 6));
   const ref = (id: string) => {
     const i = c.evidence.findIndex((e) => e.id === id);
@@ -428,7 +428,8 @@ export function promptSnapshot(c: ResearchContext) {
       ...l,
       evidenceId: ref(l.evidenceId),
     })),
-    news: c.news.map((n) => ({
+    news: (role === "onchain" ? [] : c.news).map((n) => ({
+      verification: "HEADLINE_ONLY",
       title: n.title,
       url: n.url,
       publishedAt: n.publishedAt,
