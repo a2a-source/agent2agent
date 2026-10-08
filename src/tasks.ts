@@ -1,15 +1,53 @@
 import { hash } from "./protocol.js";
 import { Store } from "./store.js";
+export interface ResearchFeedback {
+  code: string;
+  instruction: string;
+}
+export function validationFeedback(error: unknown): ResearchFeedback {
+  if ((error as any)?.name === "ZodError")
+    return {
+      code: "OUTPUT_FORMAT",
+      instruction:
+        "Your root JSON must contain ALL required fields. Role report: summary (string), missing (array), evidenceIds (array), recommendation (string), uncertainty (string), sections (array of id/content/evidenceRefs). Returning only sections is invalid. Master requires summary, sections, decisions, disagreements, signals and risks. Follow requiredOutput exactly; no wrapper.",
+    };
+  const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("research coverage incomplete:"))
+    return {
+      code: "ROLE_COVERAGE",
+      instruction:
+        "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs news_search for Bitcoin, Ethereum and BNB and an attempted fetch_page for an actual source; macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
+    };
+  if (/policy|target|weight|holdings|capital|HOLD/i.test(message))
+    return {
+      code: "RISK_POLICY",
+      instruction:
+        "Recompute targets from context.facts; respect per-asset and total limits, actual holdings and action direction. Hard policy cannot be cancelled by market conditions.",
+    };
+  if (/evidence/i.test(message))
+    return {
+      code: "EVIDENCE",
+      instruction:
+        "Cite only supplied evidence references; each signal needs fresh market evidence cited by a role.",
+    };
+  return {
+    code: "OUTPUT_FORMAT",
+    instruction:
+      "Return the requested valid JSON schema including every reportTemplate section in order, with content and evidenceRefs arrays; cover each role exactly once, use arrays, and check required fields against the task.",
+  };
+}
 export type ResearchFailure =
   "PLATFORM" | "PROVIDER" | "DATA" | "WORKER" | "INVALID_OUTPUT";
+export class ResearchTaskError extends Error {
+  constructor(readonly failure: ResearchFailure) {
+    super("prior research attempt failed");
+  }
+}
 export function classifyResearchFailure(error: unknown): ResearchFailure {
-  const message = error instanceof Error ? error.message : String(error);
-  if (
-    error instanceof SyntaxError ||
-    /validation|fabricated|invalid Master|evidence|Zod/i.test(message) ||
-    (error as any)?.name === "ZodError"
-  )
+  if (error instanceof ResearchTaskError) return error.failure;
+  if (error instanceof SyntaxError || (error as any)?.name === "ZodError")
     return "INVALID_OUTPUT";
+  const message = error instanceof Error ? error.message : String(error);
   if (
     /LLM HTTP|LLM request limit|LLM API key|fetch|LLM usage|LLM content|provider|uncertain LLM|timeout/i.test(
       message,
@@ -17,7 +55,16 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
   )
     return "PROVIDER";
   if (/ineligible|compute budget/i.test(message)) return "WORKER";
+  if (/fabricated/i.test(message)) return "INVALID_OUTPUT";
   if (/source|data expired|BNB\/USD oracle/i.test(message)) return "DATA";
+  if (
+    error instanceof SyntaxError ||
+    (error as any)?.name === "ZodError" ||
+    /validation|fabricated|invalid Master|evidence|Zod|^signal |^C4 policy|^aggregate target|^omitted position|^portfolio valuation|^HOLD |^BUY |^SELL |^Master decisions|^Agent final JSON unavailable|^research coverage incomplete:|^report template/i.test(
+      message,
+    )
+  )
+    return "INVALID_OUTPUT";
   return "PLATFORM";
 }
 export function balancedAssignments(
@@ -60,6 +107,7 @@ interface Attempt {
   result?: unknown;
   failure?: ResearchFailure;
   contextHash?: string;
+  feedback?: ResearchFeedback;
 }
 export interface ResearchOptions {
   resumable?: boolean;
@@ -114,11 +162,16 @@ export class ResearchTasks {
     workers: string[],
     deadline: number,
     fence: () => void,
-    work: (agent: string, id: string) => Promise<T>,
+    work: (
+      agent: string,
+      id: string,
+      feedback?: ResearchFeedback,
+    ) => Promise<T>,
     context: unknown = key,
   ): Promise<T> {
     const contextHash = hash({ workers, context });
     let last: unknown = Error("research attempts exhausted");
+    let feedback: ResearchFeedback | undefined;
     for (let i = 0; i < this.maxAttempts; i++) {
       fence();
       if (Date.now() >= deadline) throw Error("epoch deadline expired");
@@ -140,7 +193,10 @@ export class ResearchTasks {
         prior.contextHash === contextHash &&
         workers.includes(prior.agent);
       if (prior && !resume) {
-        last = Error("prior research attempt unavailable");
+        if (prior.failure === "DATA" || prior.failure === "PLATFORM")
+          throw new ResearchTaskError(prior.failure);
+        feedback = prior.feedback;
+        last = new ResearchTaskError(prior.failure ?? "PLATFORM");
         continue;
       }
       const agent = resume ? prior!.agent : workers[i % workers.length];
@@ -153,7 +209,7 @@ export class ResearchTasks {
           status: "RUNNING",
         });
       try {
-        const result = await work(agent, id);
+        const result = await work(agent, id, feedback);
         fence();
         if (Date.now() >= deadline) throw Error("epoch deadline expired");
         this.db.put("research-attempt", id, {
@@ -167,12 +223,15 @@ export class ResearchTasks {
       } catch (error) {
         last = error;
         const failure = classifyResearchFailure(error);
+        feedback =
+          failure === "INVALID_OUTPUT" ? validationFeedback(error) : undefined;
         this.db.put("research-attempt", id, {
           id,
           agent,
           contextHash,
           status: "FAILED",
           failure,
+          feedback,
         });
         if (failure === "PLATFORM" || failure === "DATA") throw error;
       }

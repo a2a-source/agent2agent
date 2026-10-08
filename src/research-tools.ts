@@ -141,6 +141,35 @@ const plain = (s: string) =>
   )
     .replace(/\s+/g, " ")
     .trim();
+/** Prefer the page body before applying the tool text budget; navigation can exceed it. */
+export function extractPageText(html: string): string {
+  let body = html
+    .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
+    .replace(/<!--[\s\S]*?-->/g, " ");
+  const start =
+    /<(article|main)\b[^>]*>|<([a-z][a-z0-9]*)\b[^>]*(?:role=["']main["']|id=["']content["'])[^>]*>/i.exec(
+      body,
+    );
+  if (start) {
+    const tag = (start[1] ?? start[2])!;
+    const begin = start.index + start[0].length;
+    const tokens = new RegExp(`<\\/?${tag}\\b[^>]*>`, "gi");
+    tokens.lastIndex = begin;
+    let depth = 1,
+      end = body.length;
+    for (let token = tokens.exec(body); token; token = tokens.exec(body)) {
+      depth += token[0].startsWith("</") ? -1 : token[0].endsWith("/>") ? 0 : 1;
+      if (depth === 0) {
+        end = token.index;
+        break;
+      }
+    }
+    body = body.slice(begin, end);
+  } else body = body.replace(/<header\b[^>]*>[\s\S]*?<\/header>/gi, " ");
+  return plain(
+    body.replace(/<(nav|footer|aside)\b[^>]*>[\s\S]*?<\/\1>/gi, " "),
+  ).slice(0, 12000);
+}
 export function parseSearch(html: string) {
   const results: { url: string; title: string }[] = [];
   for (const m of html.matchAll(/<a\b([^>]+)>([\s\S]*?)<\/a>/gi)) {
@@ -259,10 +288,7 @@ export function researchTools(): ResearchTool[] {
       run: async ({ url }, signal) => {
         try {
           const canonical = validatePublicUrl(url).href;
-          const text = plain(await publicText(canonical, signal)).slice(
-            0,
-            8000,
-          );
+          const text = extractPageText(await publicText(canonical, signal));
           return {
             data: text,
             sources: [

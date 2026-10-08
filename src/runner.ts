@@ -159,6 +159,7 @@ export class Runner {
         roles = this.config.roles;
       const version = hash({
         roles,
+        reportTemplates: this.config.reportTemplates,
         master: this.config.masterPrompt,
         llm: this.config.llm,
         agent: this.config.agent,

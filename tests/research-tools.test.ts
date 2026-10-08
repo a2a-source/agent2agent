@@ -41,3 +41,20 @@ test("news/search tools preserve source provenance and publication time", () => 
     "https://example.com/",
   );
 });
+import { extractPageText } from "../src/research-tools.js";
+test("page extraction retains article beyond long navigation before truncating", () => {
+  const html =
+    "<html><header>" +
+    "navigation ".repeat(1500) +
+    "</header><main><article><header>October 7</header><p>Official policy rate is 4%.</p></article></main><footer>footer</footer></html>";
+  const text = extractPageText(html);
+  assert.match(text, /Official policy rate is 4%/);
+  assert.match(text, /October 7/);
+  assert(!text.includes("navigation"));
+  assert.match(
+    extractPageText(
+      '<div id="content"><div>nested</div><p>release body</p></div><footer>junk</footer>',
+    ),
+    /release body/,
+  );
+});

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { researchFacts } from "./research-facts.js";
 import { isAddress, formatUnits } from "ethers";
 import { hash } from "./protocol.js";
 export const uint = z
@@ -354,8 +355,21 @@ export function promptSnapshot(c: ResearchContext) {
     const i = c.evidence.findIndex((e) => e.id === id);
     return i < 0 ? id : `E${i + 1}`;
   };
+  const facts = researchFacts(c);
+  const readable = (x: any) => ({
+    ...x,
+    weightPercent: x.weightBps === null ? null : formatUnits(x.weightBps, 2),
+    limitPercent: x.limitBps === null ? null : formatUnits(x.limitBps, 2),
+  });
   return {
+    facts: {
+      ...facts,
+      assets: facts.assets.map(readable),
+      totalTokens: readable(facts.totalTokens),
+      nativeFunding: readable(facts.nativeFunding),
+    },
     at: c.at,
+    atISO: new Date(c.at).toISOString(),
     chainId: c.chainId,
     units:
       "All price/value/cost/PnL fields here are USDT reference marks. Percent fields are percentages, not basis points. DEX liquidity is whole USD. Unknown is null, never zero.",

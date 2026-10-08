@@ -473,7 +473,10 @@ export function contextTools(
       schema: z.object({}),
       run: async () => ({
         data: Object.fromEntries(
-          sections.map((s) => [s, (promptSnapshot(context) as any)[s]]),
+          ["facts", ...sections].map((s) => [
+            s,
+            (promptSnapshot(context) as any)[s],
+          ]),
         ),
         evidence: context.evidence,
         missing: context.missing,

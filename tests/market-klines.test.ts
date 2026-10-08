@@ -28,6 +28,9 @@ test("klines retains exact OHLCV, excludes open bar and bounds official request"
   assert.equal(new URL(url).origin, "https://data-api.binance.vision");
   assert.equal(new URL(url).searchParams.get("limit"), "4");
   assert.equal(out.data.candles.length, 3);
+  assert.equal(out.data.metrics.closeToCloseChangeBps, 0);
+  assert.equal(out.data.metrics.firstOpenToLastCloseBps, 99);
+  assert.equal(out.data.metrics.lastCloseVsSma, "EQUAL");
   assert.equal(out.data.candles[0].open, "100.00000001");
   assert.equal(out.data.candles[0].volume, "3.5");
   assert(out.data.candles.every((c: any) => c.closeTime < now));

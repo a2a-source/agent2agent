@@ -1,0 +1,184 @@
+{
+  "positions": {
+    "version": "role-report/1",
+    "title": "Portfolio and funding",
+    "sections": [
+      {
+        "id": "holdings",
+        "title": "Holdings and funding",
+        "instruction": "For every asset, quantity, value, weightPercent; BNB potential funding separately. Cite frozen portfolio evidence."
+      },
+      {
+        "id": "performance",
+        "title": "Cost and performance",
+        "instruction": "Known cost, unrealized/realized PnL and unknown history. Deposits are not gains."
+      },
+      {
+        "id": "changes",
+        "title": "Cross-round changes",
+        "instruction": "Quantity versus market-price changes; prior proposals are not fills. If no comparable previous snapshot exists, state NOT_COMPARABLE; never substitute the current market-window return."
+      },
+      {
+        "id": "recommendation",
+        "title": "Position recommendation",
+        "instruction": "Concentration issues from facts, hold/reduce/add eligibility; uncertainty and missing accounting."
+      }
+    ]
+  },
+  "market": {
+    "version": "role-report/1",
+    "title": "Multi-horizon trend",
+    "sections": [
+      {
+        "id": "hourly_trends",
+        "title": "Hourly trends",
+        "instruction": "For EACH BTCUSDT/ETHUSDT/BNBUSDT: tool source, first/last times, firstOpenToLastCloseBps and lastCloseVsSma from computed metrics."
+      },
+      {
+        "id": "short_term",
+        "title": "Short-term comparison",
+        "instruction": "Frozen one-minute metrics, their actual window and evidence. Explain differences with hourly observations without conflating windows."
+      },
+      {
+        "id": "scenarios",
+        "title": "Conditional scenarios",
+        "instruction": "Evidence-grounded entry/reduction scenarios and invalidation. No invented RSI or price thresholds."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Missing data, CEX versus DEX limitations, timestamp mismatch and uncertainty."
+      }
+    ]
+  },
+  "news": {
+    "version": "role-report/1",
+    "title": "Asset news",
+    "sections": [
+      {
+        "id": "asset_news",
+        "title": "Per-asset news",
+        "instruction": "For BTCB, ETH and WBNB separately: headline, publication time, URL, relevance; or no relevant item found after search. Label HEADLINE_ONLY or FULL_TEXT."
+      },
+      {
+        "id": "verification",
+        "title": "Verification",
+        "instruction": "Which important source bodies were actually fetched; what facts those bodies support. Failed retrievals and forecasts must be explicit."
+      },
+      {
+        "id": "impact",
+        "title": "Potential impact",
+        "instruction": "Separate observed event from inferred asset impact and horizon. Do not claim price impact is proven."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Unverified/old/irrelevant items, gaps and conflicting accounts."
+      }
+    ]
+  },
+  "macro": {
+    "version": "role-report/1",
+    "title": "Macro conditions",
+    "sections": [
+      {
+        "id": "policy_facts",
+        "title": "Verified macro facts",
+        "instruction": "Official source URL/publication date and actual policy facts visible in fetched text; unknown CPI/rates remain unknown. Distinguish historical pre-meeting expectations in minutes from the actual past decision and current future scenarios."
+      },
+      {
+        "id": "transmission",
+        "title": "Asset impact channels",
+        "instruction": "Explain potential BTC/ETH/BNB channels as interpretation, not direct proof."
+      },
+      {
+        "id": "scenarios",
+        "title": "Scenarios",
+        "instruction": "Conditional implications and horizon without inventing numeric releases."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Unobserved time series, old releases, unavailable documents and uncertainty."
+      }
+    ]
+  },
+  "onchain": {
+    "version": "role-report/1",
+    "title": "Chain and DEX observations",
+    "sections": [
+      {
+        "id": "liquidity",
+        "title": "Per-asset pool observations",
+        "instruction": "For every asset give pool identity, observed liquidity, DEX, timestamp and evidence; avoid overlapping sums."
+      },
+      {
+        "id": "asset_risks",
+        "title": "Asset and protocol risks",
+        "instruction": "Distinguish known issuer/bridge mechanisms from verified incidents; cite actual evidence for incident claims."
+      },
+      {
+        "id": "constraints",
+        "title": "Trading constraints",
+        "instruction": "Observed liquidity threshold versus executable quote limitations; zero holdings do not prohibit BUY with BNB funding."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Missing flows, holders, depth, bridge reserves or source checks. No invented whale activity."
+      }
+    ]
+  },
+  "risk": {
+    "version": "role-report/1",
+    "title": "Independent risk assessment",
+    "sections": [
+      {
+        "id": "limits",
+        "title": "Deterministic limits",
+        "instruction": "Copy per-asset weightPercent/limitPercent/overLimit and totalTokens equivalents from facts. State exactly which limits are breached."
+      },
+      {
+        "id": "funding",
+        "title": "Funding and exposure",
+        "instruction": "BNB potential funding and price risk separately; known/unknown capital, Gas and executable quote limits."
+      },
+      {
+        "id": "constraints",
+        "title": "Hard constraints",
+        "instruction": "Permissible target bounds and unresolved violations; hard rules cannot be cancelled by market conditions."
+      },
+      {
+        "id": "limitations",
+        "title": "Risk gaps",
+        "instruction": "Evidence freshness, liquidity limitations, missing data and residual risk."
+      }
+    ]
+  },
+  "master": {
+    "version": "role-report/1",
+    "title": "Master synthesis",
+    "sections": [
+      {
+        "id": "facts",
+        "title": "Authoritative state",
+        "instruction": "Portfolio/funding and actual breached limits from facts; do not repeat role arithmetic errors."
+      },
+      {
+        "id": "evidence_review",
+        "title": "Role evidence review",
+        "instruction": "Describe accepted/rejected/qualified conclusions, principal evidence and retained disagreements."
+      },
+      {
+        "id": "strategy",
+        "title": "Proposed strategy",
+        "instruction": "Explain structured signals or reason for no signals, allocation basis and hard-rule priority. Proposals are unexecuted."
+      },
+      {
+        "id": "limitations",
+        "title": "Residual limitations",
+        "instruction": "Missing/weak/contradictory evidence, unresolved current violations and non-execution boundary."
+      }
+    ]
+  }
+}

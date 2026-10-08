@@ -1,4 +1,10 @@
+import {
+  templateSchema,
+  reportSectionSchema,
+  validateReportSections,
+} from "./report-templates.js";
 import { z } from "zod";
+import { validateC4Targets, verifyResearchChecks } from "./research-facts.js";
 import { isAddress } from "ethers";
 import { hash } from "./protocol.js";
 import {
@@ -12,6 +18,7 @@ const text = z.string().min(1).max(4000),
   bps = z.number().int().min(0).max(10000);
 export const researchReportSchema = z
   .object({
+    sections: z.array(reportSectionSchema).max(8).optional(),
     summary: text,
     sources: z.array(z.string().url()).max(32).default([]),
     missing: strings,
@@ -30,6 +37,11 @@ export function evidenceRef(id: string, context: ResearchContext) {
 }
 export function normalizeReport(raw: unknown, context: ResearchContext) {
   const report = researchReportSchema.parse(raw);
+  if (report.sections)
+    for (const section of report.sections)
+      section.evidenceRefs = section.evidenceRefs.map((ref) =>
+        /^E[1-9][0-9]*$/.test(ref) ? evidenceRef(ref, context).id : ref,
+      );
   const refs = report.evidenceIds.map((id) => evidenceRef(id, context));
   return {
     ...report,
@@ -52,6 +64,7 @@ export const researchSignalSchema = z
   .strict();
 export const decisionSchema = z
   .object({
+    sections: z.array(reportSectionSchema).max(8).optional(),
     summary: text,
     decisions: z
       .array(
@@ -104,11 +117,10 @@ export function validateResearchDecision(
     if (s.chainId !== context.chainId || !asset || seen.has(key))
       throw Error("signal asset not in research universe or duplicate");
     seen.add(key);
+    if (!market || now - market.asOf > maxAgeMs || market.asOf > now)
+      throw Error("market data expired or unavailable");
     if (
-      !market ||
-      now - market.asOf > maxAgeMs ||
-      market.asOf > now ||
-      !s.evidence.includes(market.evidenceId) ||
+      !s.evidence.includes(market!.evidenceId) ||
       s.evidence.some(
         (id) =>
           !context.evidence.some((e) => e.id === id) ||
@@ -202,11 +214,49 @@ export const qspV2Schema = z
     masterSummary: decisionSchema.omit({ signals: true, risks: true }),
     signals: z.array(researchSignalSchema).max(24),
     risks: strings.min(1),
+    reportTemplates: z.record(templateSchema).optional(),
+    researchChecks: z
+      .object({
+        profile: z.literal("c4/1"),
+        facts: z.record(z.unknown()),
+        currentViolations: z.array(
+          z.object({ code: z.string(), asset: z.string() }).strict(),
+        ),
+        hardRules: z.literal("HARD_POLICY_OVERRIDES_TEXT_CONDITIONS"),
+      })
+      .strict()
+      .optional(),
     executed: z.literal(false),
   })
   .strict()
   .superRefine((q, ctx) => {
     try {
+      if (q.researchChecks) {
+        verifyResearchChecks(q.researchChecks, q.context);
+        validateC4Targets(q.signals, q.context);
+      }
+      if (q.reportTemplates) {
+        const refs = (extra: typeof q.context.evidence) =>
+          new Set(
+            [...q.context.evidence, ...extra].flatMap((e) => [e.id, e.url]),
+          );
+        for (const r of q.reports) {
+          const template = q.reportTemplates[r.role];
+          if (!template) throw Error("report template missing");
+          validateReportSections(
+            template,
+            r.sections,
+            refs(r.additionalEvidence),
+          );
+        }
+        const master = q.reportTemplates.master;
+        if (!master) throw Error("master report template missing");
+        validateReportSections(
+          master,
+          q.masterSummary.sections,
+          refs(q.reports.flatMap((r) => r.additionalEvidence)),
+        );
+      }
       assertResearchAssets(q.context.chainId, q.context.universe);
       validateResearchDecision(
         { ...q.masterSummary, signals: q.signals, risks: q.risks },

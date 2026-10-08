@@ -26,6 +26,41 @@ test("three v2 rounds bind actual context, previous package, independent reports
   config.research.enabled = true;
   config.network.timeoutMs = 3600000;
   config.network.stateMaxAgeMs = 3600000;
+  const runtimeRun = AgentRuntime.prototype.run;
+  t.mock.method(
+    AgentRuntime.prototype,
+    "run",
+    async function (
+      this: AgentRuntime,
+      agent: string,
+      id: string,
+      system: string,
+      input: string,
+      tools: import("../src/agent-runtime.js").ResearchTool[] = [],
+      signal?: AbortSignal,
+    ) {
+      return runtimeRun.call(
+        this,
+        agent,
+        id,
+        system,
+        input,
+        tools.map((t) =>
+          t.name === "research_snapshot"
+            ? t
+            : {
+                ...t,
+                run: async () => ({
+                  data: null,
+                  sources: [],
+                  missing: ["fixture unavailable"],
+                }),
+              },
+        ),
+        signal,
+      );
+    },
+  );
   let round = 0;
   t.mock.method(ResearchData.prototype, "collect", async (previous: any) => {
     round++;
@@ -106,10 +141,41 @@ test("three v2 rounds bind actual context, previous package, independent reports
       requests++;
       const body = JSON.parse(raw);
       const x = JSON.parse(body.messages[1].content);
+      const role = x.identity?.role;
       if (
-        x.identity?.role === "market" &&
+        ["market", "news", "macro"].includes(role) &&
         !body.messages.some((m: any) => m.role === "tool")
       ) {
+        const calls =
+          role === "market"
+            ? [
+                { name: "research_snapshot", arguments: "{}" },
+                ...config.research.assets.map((a) => ({
+                  name: "market_klines",
+                  arguments: JSON.stringify({
+                    symbol: a.marketSymbol,
+                    interval: "1h",
+                    limit: 24,
+                  }),
+                })),
+              ]
+            : role === "news"
+              ? [
+                  ...["Bitcoin", "Ethereum", "BNB Chain"].map((query) => ({
+                    name: "news_search",
+                    arguments: JSON.stringify({ query }),
+                  })),
+                  {
+                    name: "fetch_page",
+                    arguments: JSON.stringify({ url: "https://example.com" }),
+                  },
+                ]
+              : [
+                  {
+                    name: "fetch_page",
+                    arguments: JSON.stringify({ url: "https://example.com" }),
+                  },
+                ];
         res.end(
           JSON.stringify({
             choices: [
@@ -117,13 +183,11 @@ test("three v2 rounds bind actual context, previous package, independent reports
                 message: {
                   role: "assistant",
                   content: null,
-                  tool_calls: [
-                    {
-                      id: "snapshot",
-                      type: "function",
-                      function: { name: "research_snapshot", arguments: "{}" },
-                    },
-                  ],
+                  tool_calls: calls.map((fn, i) => ({
+                    id: "tool" + i,
+                    type: "function",
+                    function: fn,
+                  })),
                 },
                 finish_reason: "tool_calls",
               },
@@ -134,8 +198,10 @@ test("three v2 rounds bind actual context, previous package, independent reports
       }
       if (x.reports) {
         const market = x.reports.find((r: any) => r.role === "market");
-        assert.equal(market.toolEvidence.length, 1);
-        assert.equal(market.toolEvidence[0].tool, "research_snapshot");
+        assert.equal(market.toolEvidence.length, 4);
+        assert(
+          market.toolEvidence.some((e: any) => e.tool === "research_snapshot"),
+        );
         assert.match(market.toolEvidence[0].contentHash, /^[0-9a-f]{64}$/);
       }
       const result = x.workers
@@ -148,6 +214,11 @@ test("three v2 rounds bind actual context, previous package, independent reports
         : x.reports
           ? {
               summary: `Portfolio ${x.context.portfolio.status}; value ${x.context.portfolio.valueMicros}`,
+              sections: x.reportTemplate.sections.map((s: any) => ({
+                id: s.id,
+                content: "Fixture analysis with explicit gaps",
+                evidenceRefs: [x.context.evidence[0].id],
+              })),
               decisions: x.reports.map((r: any) => ({
                 role: r.role,
                 decision: "QUALIFY",
@@ -159,6 +230,11 @@ test("three v2 rounds bind actual context, previous package, independent reports
             }
           : {
               summary: `Observed ${x.context.portfolio.status}`,
+              sections: x.reportTemplate.sections.map((s: any) => ({
+                id: s.id,
+                content: "Fixture analysis with explicit gaps",
+                evidenceRefs: [x.context.evidence[0].id],
+              })),
               sources: [],
               missing: [],
               evidenceIds: [x.context.evidence[0].id],
@@ -224,14 +300,14 @@ test("three v2 rounds bind actual context, previous package, independent reports
           return (original as any)(...args);
         });
         await assert.rejects(runner.run(epoch), /simulated crash/);
-        assert.equal(requests, 9);
+        assert.equal(requests, 11);
         t.mock.timers.enable({
           apis: ["Date"],
           now: Date.now() + config.research.maxAgeMs + 1,
         });
         try {
           await assert.rejects(runner.run(epoch), /data expired/);
-          assert.equal(requests, 9);
+          assert.equal(requests, 11);
         } finally {
           t.mock.timers.reset();
         }
@@ -241,6 +317,16 @@ test("three v2 rounds bind actual context, previous package, independent reports
       assert.equal(out.version, "a2a-qsp/2");
       if (out.version !== "a2a-qsp/2") throw Error("version");
       assert.equal(out.reports.length, 6);
+      assert.equal(out.researchChecks?.profile, "c4/1");
+      assert.equal(
+        qspV2Schema.safeParse({
+          ...out,
+          researchChecks: { ...out.researchChecks, facts: {} },
+        }).success,
+        false,
+      );
+      const { researchChecks: _checks, ...legacy } = out;
+      assert.equal(qspV2Schema.safeParse(legacy).success, true);
       assert.equal(
         qspV2Schema.safeParse({
           ...out,
@@ -286,7 +372,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
       );
       prior = out;
     }
-    assert.equal(requests, 27);
+    assert.equal(requests, 33);
     assert.equal(db.all("research-context").length, 3);
   } finally {
     db.close();

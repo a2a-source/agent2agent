@@ -118,3 +118,5 @@ Validation checks structure, evidence membership, context binding, holdings and 
 Role prompts specify assets, research questions, news freshness, common candle horizons and tool selection. Each task also receives asset/reference-market mappings, its research objective and available tools. Empty portfolios can still produce evidence-based watch conditions, without inventing capital or holdings.
 
 Master receives reports and content-hash-checked tool excerpts, retaining tool inputs, source times, missing information and truncation flags; full observations remain auditable by evidence hash. Snapshots explicitly distinguish window returns, SMA deviation and one-minute return volatility. At the tool-round limit, the final model call explicitly requests synthesis without further tools. These mechanisms improve reviewable context, not guarantee factual correctness of every model statement.
+
+See [standard role and Master report templates](report-templates.md) for required sections, deterministic checks and quality boundaries.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseUnits } from "ethers";
+import { parseUnits, formatUnits } from "ethers";
 import type { ResearchTool } from "./agent-runtime.js";
 import { networkFetch } from "./network.js";
 import { readJson } from "./http.js";
@@ -96,6 +96,20 @@ export function marketKlinesTool(load = get, clock = Date.now): ResearchTool {
           last = candles.at(-1);
         if (!last || retrievedAt - last.closeTime > step + 60000)
           throw Error("stale candles");
+        const first = candles[0]!,
+          firstOpen = parseUnits(first.open, 18),
+          firstClose = parseUnits(first.close, 18),
+          lastClose = parseUnits(last.close, 18);
+        const average =
+          candles.reduce((sum, c) => sum + parseUnits(c.close, 18), 0n) /
+          BigInt(candles.length);
+        const change = (end: bigint, start: bigint) => {
+          const n = ((end - start) * 10000n) / start;
+          return n > BigInt(Number.MAX_SAFE_INTEGER) ||
+            n < BigInt(Number.MIN_SAFE_INTEGER)
+            ? null
+            : Number(n);
+        };
         return {
           data: {
             exchange: "binance",
@@ -105,6 +119,25 @@ export function marketKlinesTool(load = get, clock = Date.now): ResearchTool {
             quoteCurrency: "USDT",
             closedOnly: true,
             asOf: last.closeTime,
+            metrics: {
+              firstOpenTime: first.openTime,
+              firstCloseTime: first.closeTime,
+              lastCloseTime: last.closeTime,
+              firstOpen: first.open,
+              firstClose: first.close,
+              lastClose: last.close,
+              firstOpenToLastCloseBps: change(lastClose, firstOpen),
+              closeToCloseChangeBps: change(lastClose, firstClose),
+              smaClose: formatUnits(average, 18),
+              lastCloseVsSma:
+                lastClose > average
+                  ? "ABOVE"
+                  : lastClose < average
+                    ? "BELOW"
+                    : "EQUAL",
+              definition:
+                "Integer bps truncated toward zero. First-open return covers all returned bars; close-to-close covers one fewer interval. SMA uses returned closed bars only.",
+            },
             candles,
           },
           sources: [

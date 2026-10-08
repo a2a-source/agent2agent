@@ -1,3 +1,5 @@
+import { validateReportSections } from "./report-templates.js";
+import { researchChecks, validateC4Targets } from "./research-facts.js";
 import { hash, type Candidate } from "./protocol.js";
 import { Agents } from "./agents.js";
 import { Epochs, type Epoch } from "./epochs.js";
@@ -20,7 +22,11 @@ import {
   qspV2Schema,
   type ResearchReport,
 } from "./qsp-v2.js";
-import { toolEvidenceBrief } from "./research-guidance.js";
+import {
+  toolEvidenceBrief,
+  retainReportEvidence,
+  validateRoleCoverage,
+} from "./research-guidance.js";
 import { verifyQsp } from "./qsp.js";
 type Call = (
   agent: string,
@@ -155,14 +161,28 @@ export async function buildResearchPackage(p: {
       [first, ...workers.filter((w) => w.id !== first).map((w) => w.id)],
       epoch.deadline,
       fresh,
-      async (agent, id) => {
+      async (agent, id, feedback) => {
         const observations: Observation[] = [];
         const raw = await call(
           agent,
           id,
           role.prompt +
-            ' Return exactly one valid JSON object, no comments or markdown. Example shape: {"summary":"brief findings","missing":[],"evidenceIds":["E1"],"recommendation":"conditional analysis","uncertainty":"limitations"}. missing and evidenceIds MUST be JSON arrays even for one item, never strings. Replace example values with actual research. evidenceIds must cite exact context.evidence ref values such as E1. Do not output a sources field: the protocol resolves IDs to URLs. Keep summaries concise; all amounts must agree with context. Missing data is not zero.',
+            ' Return exactly one valid JSON object matching requiredOutput at the ROOT, no wrapper, comments or markdown. reportTemplate describes sections ONLY; all other root fields are still mandatory. Also include sections:[{id,content,evidenceRefs:[]}] in EXACT supplied reportTemplate section order. Fill every section with actual findings or explicit missing data; evidenceRefs use frozen E refs or exact tool source URLs. Example shape: {"summary":"brief findings","missing":[],"evidenceIds":["E1"],"recommendation":"conditional analysis","uncertainty":"limitations"}. missing and evidenceIds MUST be JSON arrays even for one item, never strings. Replace example values with actual research. evidenceIds must cite exact context.evidence ref values such as E1. Do not output a sources field: the protocol resolves IDs to URLs. Keep summaries concise; all amounts must agree with context. Missing data is not zero.',
           JSON.stringify({
+            requiredOutput: {
+              summary: "brief factual summary",
+              missing: [],
+              evidenceIds: [],
+              recommendation: "role-specific recommendation",
+              uncertainty: "limitations",
+              sections: config.reportTemplates[role.id]!.sections.map((s) => ({
+                id: s.id,
+                content: "actual findings or explicit missing data",
+                evidenceRefs: [],
+              })),
+            },
+            reportTemplate: config.reportTemplates[role.id],
+            validationFeedback: feedback,
             identity: {
               agent,
               epoch: epoch.id,
@@ -177,7 +197,7 @@ export async function buildResearchPackage(p: {
                 asset: a.address,
               })),
               objective:
-                "Assess conditional buy/hold/reduce cases for each configured asset. Separate market opportunity from portfolio execution eligibility. Zero capital prevents BUY signals, not research. No holdings prevents SELL. Specify evidence, horizon, trigger and invalidation in recommendation; do not invent prices or demand missing PnL before doing market research.",
+                "Provide role-specific facts and analysis for every configured asset. Use context.facts for funding and limits. Zero token holdings do not prevent BUY when native funding exists; SELL requires holdings. Leave other specialties to their roles. Clearly separate observed evidence, inference, missing data and conditional recommendations; do not invent metrics or sources.",
               toolsAvailable: config.agent.toolsEnabled
                 ? contextTools(context, role.id).map((t) => t.name)
                 : [],
@@ -187,6 +207,8 @@ export async function buildResearchPackage(p: {
           config.agent.toolsEnabled ? contextTools(context, role.id) : [],
           observations,
         );
+        if (config.agent.toolsEnabled)
+          validateRoleCoverage(role.id, context, observations);
         const parsed = normalizeReport(raw, context);
         const extra: ResearchReport["additionalEvidence"] = [];
         for (const o of observations) {
@@ -212,7 +234,20 @@ export async function buildResearchPackage(p: {
             extra.push(citation);
           }
         }
-        const urls = new Set([...context.evidence, ...extra].map((e) => e.url));
+        const retained = retainReportEvidence(extra, [
+          ...parsed.sources,
+          ...(parsed.sections ?? []).flatMap((s) => s.evidenceRefs),
+        ]);
+        validateReportSections(
+          config.reportTemplates[role.id]!,
+          parsed.sections,
+          new Set(
+            [...context.evidence, ...retained].flatMap((e) => [e.id, e.url]),
+          ),
+        );
+        const urls = new Set(
+          [...context.evidence, ...retained].map((e) => e.url),
+        );
         if (
           parsed.sources.some((s) => !urls.has(s)) ||
           parsed.evidenceIds.some(
@@ -229,7 +264,7 @@ export async function buildResearchPackage(p: {
           role: role.id,
           agent,
           contextHash,
-          additionalEvidence: extra.slice(0, 64),
+          additionalEvidence: retained,
         };
         fresh();
         db.put("report", `${epoch.id}:report:${role.id}`, {
@@ -248,14 +283,16 @@ export async function buildResearchPackage(p: {
     [epoch.master],
     epoch.deadline,
     fresh,
-    async (agent, id) => {
+    async (agent, id, feedback) => {
       const raw = await call(
         agent,
         id,
         config.masterPrompt,
         JSON.stringify({
-          task: 'Return JSON {summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
+          task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
           context: promptContext,
+          reportTemplate: config.reportTemplates.master,
+          validationFeedback: feedback,
           reports: reports.map(
             ({
               role,
@@ -265,9 +302,11 @@ export async function buildResearchPackage(p: {
               evidenceIds,
               missing,
               additionalEvidence,
+              sections,
             }) => ({
               role,
               summary,
+              sections,
               recommendation,
               uncertainty,
               evidenceIds,
@@ -280,6 +319,22 @@ export async function buildResearchPackage(p: {
       const result = decisionSchema.parse(raw);
       for (const s of result.signals)
         s.evidence = s.evidence.map((id) => evidenceRef(id, context).id);
+      if (result.sections)
+        for (const section of result.sections)
+          section.evidenceRefs = section.evidenceRefs.map((ref) =>
+            /^E[1-9][0-9]*$/.test(ref) ? evidenceRef(ref, context).id : ref,
+          );
+      validateReportSections(
+        config.reportTemplates.master!,
+        result.sections,
+        new Set(
+          [
+            ...context.evidence,
+            ...reports.flatMap((r) => r.additionalEvidence),
+          ].flatMap((e) => [e.id, e.url]),
+        ),
+      );
+      validateC4Targets(result.signals, context);
       return validateResearchDecision(
         result,
         context,
@@ -318,6 +373,8 @@ export async function buildResearchPackage(p: {
     masterSummary,
     signals,
     risks,
+    reportTemplates: config.reportTemplates,
+    researchChecks: researchChecks(context),
     executed: false,
   });
   db.insert("research-final", runId, output);

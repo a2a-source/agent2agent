@@ -111,6 +111,8 @@ test("portfolio identity or universe change resets comparison baseline", () => {
 import { promptSnapshot } from "../src/research-context.js";
 test("model context renders reference prices and basis points without scale ambiguity", () => {
   const raw: any = {
+    at: 1,
+    universe: [],
     portfolio: portfolioSnapshot([], true),
     markets: [
       {
@@ -135,7 +137,7 @@ test("model context renders reference prices and basis points without scale ambi
     ],
     liquidity: [],
     changes: { positions: [], prices: [] },
-    policy: {},
+    policy: { maxAssetBps: 3000, maxTotalBps: 8000 },
     missing: [],
     previous: null,
   };
@@ -146,4 +148,5 @@ test("model context renders reference prices and basis points without scale ambi
   assert.equal(p.markets[0].priceVsSma, "ABOVE");
   assert.equal(p.markets[0].smaDeviationPercent, "0.04");
   assert.equal(p.news[0].url, "https://example.com/policy");
+  assert.equal(p.facts.totalTokens.limitPercent, "80.0");
 });

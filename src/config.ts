@@ -1,9 +1,11 @@
+import { templateSchema } from "./report-templates.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { assetSchema, assertResearchAssets } from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
+  reportTemplates: z.record(templateSchema),
   host: z.string(),
   port: z.number().int().min(0).max(65535),
   database: z.string(),
@@ -119,6 +121,12 @@ export function loadConfig(path?: string): Config {
   const base = JSON.parse(
     readFileSync(new URL("../config/default.json", import.meta.url), "utf8"),
   );
+  base.reportTemplates = JSON.parse(
+    readFileSync(
+      new URL("../config/report-templates.json", import.meta.url),
+      "utf8",
+    ),
+  );
   const override = path ? JSON.parse(readFileSync(path, "utf8")) : {};
   const c = schema.parse({
     ...base,
@@ -138,6 +146,11 @@ export function loadConfig(path?: string): Config {
     c.research.assets.length
   )
     throw Error("duplicate research assets");
+  if (
+    c.research.enabled &&
+    ["master", ...c.roles.map((r) => r.id)].some((id) => !c.reportTemplates[id])
+  )
+    throw Error("missing report template for configured role");
   if (c.research.enabled)
     assertResearchAssets(c.research.chainId, c.research.assets);
   return c;
