@@ -288,7 +288,9 @@ export function researchTools(): ResearchTool[] {
       run: async ({ url }, signal) => {
         try {
           const canonical = validatePublicUrl(url).href;
-          const text = extractPageText(await publicText(canonical, signal));
+          const text = extractPageText(
+            await publicText(canonical, signal, 512000),
+          );
           return {
             data: text,
             sources: [
@@ -322,4 +324,49 @@ export async function macroAnnouncements(signal?: AbortSignal) {
       signal,
     ),
   );
+}
+/** Fixed per-asset discovery in one Agent tool call, leaving rounds for source verification. */
+export function assetNewsTool(
+  symbols: string[],
+  search: ResearchTool = researchTools().find((t) => t.name === "news_search")!,
+): ResearchTool {
+  const names: Record<string, string> = {
+    BTCB: "Bitcoin",
+    ETH: "Ethereum",
+    WBNB: "BNB Chain",
+  };
+  const schema = z
+    .object({ lookbackDays: z.union([z.literal(1), z.literal(7)]).default(1) })
+    .strict();
+  return {
+    name: "asset_news",
+    description:
+      "First step for news research: search EACH configured asset (Bitcoin, Ethereum, BNB Chain) in one call. Choose 1 day, or 7 days if explicitly widening. Results are headlines, not verified articles; then locate and fetch relevant publisher bodies.",
+    schema,
+    run: async (input, signal) => {
+      const { lookbackDays } = schema.parse(input);
+      const rows = await Promise.all(
+        symbols.map(async (asset) => {
+          const name = names[asset];
+          if (!name) throw Error("unsupported news asset");
+          const query = `${name} when:${lookbackDays}d`,
+            output: any = await search.run({ query }, signal);
+          return {
+            asset,
+            query,
+            items: output.data ?? [],
+            sources: output.sources ?? [],
+            missing: output.missing ?? [],
+          };
+        }),
+      );
+      return {
+        data: rows.map(({ asset, query, items }) => ({ asset, query, items })),
+        sources: rows.flatMap((r) => r.sources),
+        missing: rows.flatMap((r) =>
+          r.missing.map((m: string) => `${r.asset}: ${m}`),
+        ),
+      };
+    },
+  };
 }

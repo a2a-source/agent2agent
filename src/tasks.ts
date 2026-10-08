@@ -16,7 +16,7 @@ export function validationFeedback(error: unknown): ResearchFeedback {
     return {
       code: "ROLE_COVERAGE",
       instruction:
-        "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs news_search for Bitcoin, Ethereum and BNB and an attempted fetch_page for an actual source; macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
+        "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs asset_news (covers all configured assets) or separate news_search for Bitcoin, Ethereum and BNB and an attempted fetch_page for an actual source; macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
     };
   if (/policy|target|weight|holdings|capital|HOLD/i.test(message))
     return {

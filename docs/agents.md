@@ -20,7 +20,7 @@ LangChain runs individual model/tool loops. A2A implements elections, wallets, b
 
 ## Roles
 
-All six specialists share the four baseline read-only tools below; `market` additionally receives `market_klines`. `research_snapshot` emphasizes different sections for each role. Initial task context also includes the round's research information; these views are not access-control boundaries.
+All six specialists share the four baseline read-only tools below; `market` additionally receives `market_klines`, and `news` receives `asset_news`. `research_snapshot` emphasizes different sections for each role. Initial task context also includes the round's research information; these views are not access-control boundaries.
 
 | Role ID | Responsibility | Snapshot focus |
 | --- | --- | --- |
@@ -38,7 +38,8 @@ All six specialists share the four baseline read-only tools below; `market` addi
 | --- | --- | --- | --- |
 | `web_search` | `query` | DuckDuckGo HTML search; indexed titles and links | No search API key required; best-effort availability; results are not article bodies |
 | `news_search` | `query` | Google News RSS; up to five headlines, links and parseable publication dates | No search API key required; not fact verification or a Twitter/X interface |
-| `fetch_page` | `url` | Public HTTPS page retrieval; up to 8,000 characters of extracted text | No JavaScript execution; destination, redirect, size and timeout restrictions; publication time may be unknown |
+| `asset_news` | `lookbackDays` (1 or 7) | News-role batch discovery across configured BTCB/ETH/WBNB, at most five headlines per asset | One tool call, up to three fixed news queries; still index metadata, not verified articles |
+| `fetch_page` | `url` | Public HTTPS page retrieval; up to 12,000 characters of body-first extracted text (512,000-byte response cap) | No JavaScript execution; destination, redirect, size and timeout restrictions; publication time may be unknown |
 | `research_snapshot` | Empty object | Frozen role data, evidence references and missing inputs | Does not refresh markets, sign transactions or execute orders |
 
 Tool results are untrusted data, not instructions. SQLite records bind observations to tool names and arguments for audit and replay checks. Availability does not force a tool call: an Agent may produce its report directly when the supplied context is sufficient.
@@ -120,3 +121,5 @@ Role prompts specify assets, research questions, news freshness, common candle h
 Master receives reports and content-hash-checked tool excerpts, retaining tool inputs, source times, missing information and truncation flags; full observations remain auditable by evidence hash. Snapshots explicitly distinguish window returns, SMA deviation and one-minute return volatility. At the tool-round limit, the final model call explicitly requests synthesis without further tools. These mechanisms improve reviewable context, not guarantee factual correctness of every model statement.
 
 See [standard role and Master report templates](report-templates.md) for required sections, deterministic checks and quality boundaries.
+
+With tools enabled, trend/news/macro have minimum research-attempt coverage checks. Positions and risk may use their supplied snapshots directly. Missing source data is reported explicitly, not counted as successful evidence verification.

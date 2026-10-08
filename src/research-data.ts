@@ -9,7 +9,11 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { networkFetch } from "./network.js";
 import { readJson } from "./http.js";
-import { researchTools, macroAnnouncements } from "./research-tools.js";
+import {
+  researchTools,
+  macroAnnouncements,
+  assetNewsTool,
+} from "./research-tools.js";
 import { marketKlinesTool } from "./market-klines.js";
 import { Store } from "./store.js";
 import type { Config } from "./config.js";
@@ -397,7 +401,7 @@ export class ResearchData {
     missing.push(
       "News headlines are index metadata, not independently verified articles",
       "Social feeds, macro time series and historical onchain flows may require additional evidence",
-      "Wrapped assets have issuer/bridge and depeg risks; CEX reference prices are not DEX execution prices",
+      "BTCB/ETH are pegged representations with custody/peg risks; WBNB is the native BNB deposit/withdraw wrapper, not a cross-chain bridge asset. Reserves and incidents are not verified by this snapshot. CEX marks are not DEX execution quotes",
     );
     if (signal?.aborted) throw signal.reason;
     const partial = {
@@ -483,6 +487,9 @@ export function contextTools(
       }),
     },
     ...researchTools(),
+    ...(role === "news"
+      ? [assetNewsTool(context.universe.map((a) => a.symbol))]
+      : []),
     ...(role === "market" ? [marketKlinesTool()] : []),
   ];
 }

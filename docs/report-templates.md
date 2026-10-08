@@ -40,8 +40,10 @@ Invalid output receives sanitized, persisted feedback within the existing attemp
 
 ## Tool and quality checks
 
-When tools are enabled, trend reports must attempt candles for each configured symbol. News must attempt searches covering configured assets and, when searches return items, attempt a page fetch; macro must attempt a page fetch. Failed sources remain explicit missing data. These are minimum coverage checks, not proof that the sources are relevant or accurate.
+When tools are enabled, trend reports must attempt candles for each configured symbol. News can use `asset_news` for one-call discovery across configured assets (then verify sources), and must attempt searches covering configured assets and, when searches return items, attempt a page fetch; macro must attempt a page fetch. Failed sources remain explicit missing data. These are minimum coverage checks, not proof that the sources are relevant or accurate.
 
 Candle results include deterministic first-open/last-close returns, close-to-close changes and a close-price SMA, with timestamps and interval definitions. Page fetching prefers article/main content before truncation to reduce navigation crowding out evidence. The tool remains a bounded text extractor, not a universal browser or paywall bypass.
 
 Live acceptance separately reviews source relevance, dates, numerical fidelity, inferred versus observed claims and Master's treatment of disagreements. Passing the schema, coverage checks or signature verification alone is not research-quality acceptance.
+
+Asset identity guidance distinguishes [the native-BNB wrapper WBNB](https://www.bnbchain.org/en/blog/what-is-wbnb) from [Binance-pegged representations](https://www.bnbchain.org/en/blog/binance-presents-project-token-canal-2). This static mechanism description is not live reserve verification or evidence that an unrelated vault incident affects a wrapper/bridge.

@@ -83,12 +83,21 @@ export function validateRoleCoverage(
       c.universe.some(
         (a) =>
           patterns[a.symbol] &&
+          !attempted("asset_news").some(
+            (o) =>
+              Array.isArray(o.output?.data) &&
+              o.output.data.some((row: any) => row.asset === a.symbol),
+          ) &&
           !attempted("news_search").some((o) =>
             patterns[a.symbol]!.test(String((o.input as any)?.query ?? "")),
           ),
       ) ||
-      (attempted("news_search").some(
-        (o) => Array.isArray(o.output?.data) && o.output.data.length > 0,
+      ([...attempted("news_search"), ...attempted("asset_news")].some(
+        (o) =>
+          Array.isArray(o.output?.data) &&
+          (o.tool === "asset_news"
+            ? o.output.data.some((r: any) => r.items?.length > 0)
+            : o.output.data.length > 0),
       ) &&
         !attempted("fetch_page").length)
     )

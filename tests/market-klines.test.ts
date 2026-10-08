@@ -96,7 +96,12 @@ test("klines propagates cancellation and registers only for market role", async 
     "onchain",
     "market",
   ]) {
-    const tools = contextTools({} as any, role);
+    const tools = contextTools(
+      {
+        universe: [{ symbol: "BTCB" }, { symbol: "ETH" }, { symbol: "WBNB" }],
+      } as any,
+      role,
+    );
     assert.equal(
       tools.some((t) => t.name === "market_klines"),
       role === "market",

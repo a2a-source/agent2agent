@@ -58,3 +58,25 @@ test("page extraction retains article beyond long navigation before truncating",
     /release body/,
   );
 });
+import { assetNewsTool } from "../src/research-tools.js";
+import { z } from "zod";
+test("batch asset news covers all symbols before spending reasoning rounds on page verification", async () => {
+  const queries: string[] = [];
+  const tool = assetNewsTool(["BTCB", "ETH", "WBNB"], {
+    name: "news_search",
+    description: "test",
+    schema: z.object({ query: z.string() }),
+    run: async ({ query }) => {
+      queries.push(query);
+      return { data: [], sources: [], missing: ["no results"] };
+    },
+  });
+  const result: any = await tool.run({ lookbackDays: 1 });
+  assert.equal(queries.length, 3);
+  assert(queries.every((q) => q.endsWith("when:1d")));
+  assert.deepEqual(
+    result.data.map((r: any) => r.asset),
+    ["BTCB", "ETH", "WBNB"],
+  );
+  assert.equal(result.missing.length, 3);
+});
