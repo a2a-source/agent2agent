@@ -35,7 +35,7 @@ npm start
 
 默认禁用链上写入；demo 使用明确标记的模拟链状态与 LLM。参见[运行与 API 说明](docs/usage.md)及[首版协议行为](docs/protocol.md)。以下章节保留项目愿景，未实现的投资与分红能力不属于当前版本。
 
-详见 [Agent 框架、角色与研究工具](docs/agents.zh-CN.md)，了解已实现的技术栈、角色职责、工具能力与 Prompt 配置方式。
+详见 [Agent 框架、角色与研究工具](docs/agents.zh-CN.md)，了解已实现的技术栈、角色职责、工具能力与 Prompt 配置方式。[标准汇报模板](docs/report-templates.zh-CN.md)说明六个研究角色与 Master 每轮必须产出的固定章节。
 
 ## 目录
 

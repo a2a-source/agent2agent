@@ -35,7 +35,7 @@ Live research emits QSP v2 with portfolio context, six specialist reports, Maste
 
 Chain writes are disabled by default. The demo explicitly simulates chain state and LLM responses. See [operations and API usage](docs/usage.md) and [implemented protocol behavior](docs/protocol.md). The sections below retain the broader project vision, including capabilities outside this release.
 
-See [Agent framework, roles and research tools](docs/agents.md) for the implemented technology stack, specialist responsibilities, tool capabilities and prompt configuration.
+See [Agent framework, roles and research tools](docs/agents.md) for the implemented technology stack, specialist responsibilities, tool capabilities and prompt configuration. [Standard report templates](docs/report-templates.md) define the required output sections for all six research roles and Master.
 
 ## Contents
 
