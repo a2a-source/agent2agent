@@ -1,3 +1,4 @@
+import { structuredOutput } from "./structured-output.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import {
   createAgent,
@@ -39,11 +40,13 @@ export class AgentRuntime {
     input: string,
     tools: ResearchTool[] = [],
     signal?: AbortSignal,
+    outputSchema?: Record<string, unknown>,
   ): Promise<AgentResult> {
     const db = this.llm.db,
       c = this.llm.config;
     const fingerprint = hash({
       protocol: "bounded-research/2",
+      ...structuredOutput(c, outputSchema),
       agent,
       system,
       input,
@@ -92,9 +95,14 @@ export class AgentRuntime {
           if (turn > this.config.maxToolRounds)
             throw Error("Agent model call limit exceeded");
           const body = JSON.parse(String(init?.body));
+          // Some providers suppress tool selection under a final-response schema.
+          // Constrain only calls that cannot request further tools.
+          if (!tools.length)
+            Object.assign(body, structuredOutput(c, outputSchema));
           if (turn === this.config.maxToolRounds && tools.length) {
             delete body.tools;
             body.tool_choice = "none";
+            Object.assign(body, structuredOutput(c, outputSchema));
             body.messages.push({
               role: "user",
               content:

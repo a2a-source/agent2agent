@@ -1,3 +1,4 @@
+import { structuredOutput } from "./structured-output.js";
 import { networkFetch as fetch } from "./network.js";
 import { Store } from "./store.js";
 import { Budget } from "./budget.js";
@@ -253,6 +254,7 @@ export class Llm {
     system: string,
     input: string,
     signal?: AbortSignal,
+    outputSchema?: Record<string, unknown>,
   ): Promise<any> {
     return this.request(
       agent,
@@ -263,6 +265,7 @@ export class Llm {
           { role: "user", content: input },
         ],
         response_format: { type: "json_object" },
+        ...structuredOutput(this.config, outputSchema),
       },
       false,
       signal,

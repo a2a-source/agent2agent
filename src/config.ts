@@ -70,6 +70,7 @@ const schema = z.object({
     toolsEnabled: z.boolean(),
   }),
   llm: z.object({
+    structuredOutputs: z.boolean().default(false),
     reasoningEffort: z
       .enum(["none", "minimal", "low", "medium", "high"])
       .optional(),

@@ -38,6 +38,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
       input: string,
       tools: import("../src/agent-runtime.js").ResearchTool[] = [],
       signal?: AbortSignal,
+      outputSchema?: Record<string, unknown>,
     ) {
       return runtimeRun.call(
         this,
@@ -58,6 +59,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
               },
         ),
         signal,
+        outputSchema,
       );
     },
   );
@@ -135,6 +137,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
   });
   let requests = 0;
   const masterPrompts: any[] = [];
+  const constrainedRequests: any[] = [];
   const server = createServer((req, res) => {
     let raw = "";
     req.on("data", (b) => (raw += b));
@@ -143,6 +146,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
       const body = JSON.parse(raw);
       const x = JSON.parse(body.messages[1].content);
       const role = x.identity?.role;
+      if (x.reports) constrainedRequests.push(body);
       if (
         ["market", "news", "macro"].includes(role) &&
         !body.messages.some((m: any) => m.role === "tool")
@@ -375,6 +379,18 @@ test("three v2 rounds bind actual context, previous package, independent reports
       prior = out;
     }
     assert.equal(requests, 33);
+    for (const body of constrainedRequests) {
+      assert.equal(body.response_format?.type, "json_schema");
+      assert.equal(body.response_format.json_schema.strict, true);
+      const schema = body.response_format.json_schema.schema;
+      assert.equal(schema.additionalProperties, false);
+      assert(schema.required.includes("sections"));
+      if (schema.properties.signals)
+        assert.equal(
+          schema.properties.signals.items.properties.conditions.type,
+          "array",
+        );
+    }
     for (const prompt of masterPrompts) {
       assert(decisionSchema.safeParse(prompt.requiredOutput).success);
       assert.deepEqual(

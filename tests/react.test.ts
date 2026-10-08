@@ -154,6 +154,18 @@ test("LangChain ReAct runs without usage, charges both requests and resumes with
       20000n,
     );
     assert.equal(budget.available("a"), 99999999920n);
+    await assert.rejects(
+      runtime.run(
+        "a",
+        "research",
+        "Return JSON",
+        "research",
+        supplied,
+        undefined,
+        { type: "object" },
+      ),
+      /Agent request conflict/,
+    );
     // Simulate process death after persisted turns/tools but before final runtime result.
     db.remove("agent-result", "research");
 
@@ -229,13 +241,14 @@ test("ReAct stops tools at the configured round bound even if the model keeps re
   const { z } = await import("zod");
   let calls = 0,
     executions = 0;
-  let finalBody: any;
+  let finalBody: any, firstBody: any;
   const server = createServer((req, res) => {
     let raw = "";
     req.on("data", (b) => (raw += b));
     req.on("end", () => {
       calls++;
       const body = JSON.parse(raw);
+      if (calls === 1) firstBody = body;
       if (calls === 2) {
         finalBody = body;
       }
@@ -275,18 +288,34 @@ test("ReAct stops tools at the configured round bound even if the model keeps re
       maxToolCalls: 1,
     });
     await assert.rejects(
-      runtime.run("a", "limit-loop", "Return JSON", "research", [
-        {
-          name: "search",
-          description: "search",
-          schema: z.object({}),
-          run: async () => {
-            executions++;
-            return { sources: [] };
+      runtime.run(
+        "a",
+        "limit-loop",
+        "Return JSON",
+        "research",
+        [
+          {
+            name: "search",
+            description: "search",
+            schema: z.object({}),
+            run: async () => {
+              executions++;
+              return { sources: [] };
+            },
           },
+        ],
+        undefined,
+        {
+          type: "object",
+          properties: {},
+          required: [],
+          additionalProperties: false,
         },
-      ]),
+      ),
     );
+    assert.equal(firstBody.response_format, undefined);
+    assert.equal(finalBody.response_format.type, "json_schema");
+    assert.equal(finalBody.response_format.json_schema.strict, true);
     assert.equal(finalBody.tool_choice, "none");
     assert.match(finalBody.messages.at(-1).content, /Tool budget exhausted/);
     assert.equal(calls, 2);

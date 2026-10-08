@@ -1,3 +1,4 @@
+import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { validateReportSections } from "./report-templates.js";
 import { researchChecks, validateC4Targets } from "./research-facts.js";
 import { hash, type Candidate } from "./protocol.js";
@@ -18,6 +19,7 @@ import {
   normalizeReport,
   evidenceRef,
   decisionSchema,
+  researchReportSchema,
   validateResearchDecision,
   qspV2Schema,
   type ResearchReport,
@@ -35,6 +37,7 @@ type Call = (
   input: string,
   tools?: ResearchTool[],
   observations?: Observation[],
+  outputSchema?: Record<string, unknown>,
 ) => Promise<any>;
 export async function buildResearchPackage(p: {
   agents: Agents;
@@ -206,6 +209,11 @@ export async function buildResearchPackage(p: {
           }),
           config.agent.toolsEnabled ? contextTools(context, role.id) : [],
           observations,
+          toJsonSchema(
+            researchReportSchema
+              .omit({ sources: true })
+              .required({ sections: true }),
+          ),
         );
         if (config.agent.toolsEnabled)
           validateRoleCoverage(role.id, context, observations);
@@ -343,6 +351,9 @@ export async function buildResearchPackage(p: {
             }),
           ),
         }),
+        [],
+        undefined,
+        toJsonSchema(decisionSchema.required({ sections: true })),
       );
       const result = decisionSchema.parse(raw);
       for (const s of result.signals)

@@ -27,3 +27,5 @@ K 线工具提供可复核的收益、均线及时间窗口；网页工具优先
 新闻角色可先用 `asset_news` 一次完成三币候选新闻检索，再定位和读取正文。资产机制指引区分[原生 BNB 包装合约 WBNB](https://www.bnbchain.org/en/blog/what-is-wbnb)与[Binance 锚定资产](https://www.bnbchain.org/en/blog/binance-presents-project-token-canal-2)；这些机制说明不代表已核实实时储备，也不能用无关金库事件证明包装合约或桥受攻击。
 
 模型输入中的初始新闻逐条标注 `HEADLINE_ONLY`。链上角色的初始上下文不注入这些未核验标题，优先分析池子、流动性与资产机制；仍可通过工具主动获取来源。新闻角色负责事件检索，Master 综合审阅。此输入裁剪不修改已冻结的原始上下文或证据。Master 同时收到通过决策 schema 验证的完整根对象示例，避免将交易字段误填进汇报章节。
+
+`llm.structuredOutputs` 在默认配置中启用：Master 无工具汇总，以及研究角色耗尽工具轮次后的无工具输出，会发送严格 JSON Schema。正常 ReAct 工具阶段不发送最终报告 Schema，避免部分供应商因此跳过工具。角色提前结束调研时仍由本地 schema、章节和证据校验把关。OpenRouter 请求要求路由支持所用参数；其他兼容接口不接收 OpenRouter 专属路由字段。不支持结构输出的 endpoint 可显式设为 `false`；系统不会在失败后悄悄降级。参见 [OpenRouter 结构输出文档](https://openrouter.ai/docs/guides/features/structured-outputs)。结构约束不能保证结论正确。

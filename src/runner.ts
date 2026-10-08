@@ -116,6 +116,7 @@ export class Runner {
       input: string,
       tools: ResearchTool[] = [],
       observations?: Observation[],
+      outputSchema?: Record<string, unknown>,
     ) => {
       fence();
       this.assertActive(epoch.master);
@@ -128,11 +129,19 @@ export class Runner {
           input,
           tools,
           controller.signal,
+          outputSchema,
         );
         if (observations) observations.push(...result.observations);
         return result.value;
       }
-      return this.llm.call(agent, id, system, input, controller.signal);
+      return this.llm.call(
+        agent,
+        id,
+        system,
+        input,
+        controller.signal,
+        outputSchema,
+      );
     };
     try {
       if (Date.now() >= epoch.deadline) throw Error("epoch deadline expired");
