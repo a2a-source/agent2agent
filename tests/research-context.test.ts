@@ -150,6 +150,13 @@ test("model context renders reference prices and basis points without scale ambi
   assert.equal(p.news[0].url, "https://example.com/policy");
   assert.equal(p.facts.totalTokens.limitPercent, "80.0");
   assert.equal(p.news[0].verification, "HEADLINE_ONLY");
+  assert.equal(p.news[0].publishedAtISO, "1970-01-01T00:00:00.001Z");
+  for (const publishedAt of [null, 1e20])
+    assert.equal(
+      promptSnapshot({ ...raw, news: [{ ...raw.news[0], publishedAt }] })
+        .news[0]!.publishedAtISO,
+      null,
+    );
   assert.deepEqual(promptSnapshot(raw, "onchain").news, []);
   assert.equal(
     raw.news.length,

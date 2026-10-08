@@ -188,7 +188,12 @@ export function parseSearch(html: string) {
   return results.slice(0, 5);
 }
 export function parseNews(xml: string) {
-  const results: { url: string; title: string; publishedAt?: number }[] = [];
+  const results: {
+    url: string;
+    title: string;
+    publishedAt?: number;
+    publishedAtISO?: string;
+  }[] = [];
   for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
     const value = (tag: string) =>
       decode(
@@ -200,7 +205,9 @@ export function parseNews(xml: string) {
       results.push({
         url: validatePublicUrl(value("link")).href,
         title: plain(value("title")).slice(0, 300),
-        ...(Number.isFinite(at) ? { publishedAt: at } : {}),
+        ...(Number.isFinite(at)
+          ? { publishedAt: at, publishedAtISO: new Date(at).toISOString() }
+          : {}),
       });
     } catch {}
   }

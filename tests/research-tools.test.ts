@@ -34,6 +34,7 @@ test("news/search tools preserve source provenance and publication time", () => 
   );
   assert.equal(results[0]?.url, "https://example.com/news");
   assert.equal(results[0]?.publishedAt, Date.parse("2026-10-06T00:00:00Z"));
+  assert.equal(results[0]?.publishedAtISO, "2026-10-06T00:00:00.000Z");
   assert.equal(
     parseSearch(
       '<a class="result__a" href="https://example.com">Example</a>',

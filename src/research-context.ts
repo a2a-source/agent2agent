@@ -433,6 +433,11 @@ export function promptSnapshot(c: ResearchContext, role?: string) {
       title: n.title,
       url: n.url,
       publishedAt: n.publishedAt,
+      publishedAtISO:
+        n.publishedAt !== null &&
+        Number.isFinite(new Date(n.publishedAt).getTime())
+          ? new Date(n.publishedAt).toISOString()
+          : null,
       evidence: ref(n.evidenceId),
     })),
     evidence: c.evidence.map((e, i) => ({
