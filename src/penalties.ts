@@ -1,6 +1,6 @@
 import { Agents } from "./agents.js";
 import { Epochs } from "./epochs.js";
-import { hash } from "./protocol.js";
+import { hash, leader } from "./protocol.js";
 import { qspSchema, verifyQsp } from "./qsp.js";
 export class Penalties {
   constructor(
@@ -10,6 +10,23 @@ export class Penalties {
     readonly failureLimit: number,
     readonly jailMs: number,
   ) {}
+  private hasSecurityEvidence(agent: string) {
+    return this.agents.db
+      .all<{ agent: string }>("evidence")
+      .some((e) => e.agent === agent);
+  }
+  private holdSecurityIsolation(agent: string) {
+    const current = this.agents.get(agent),
+      record = this.agents.db.get<{ reason?: string }>("quarantine", agent);
+    if (!current.jailed) this.agents.update(agent, { jailed: true });
+    if (record?.reason !== "CONFLICTING_SIGNATURE")
+      this.agents.db.put("quarantine", agent, {
+        agent,
+        reason: "CONFLICTING_SIGNATURE",
+        until: null,
+        financialPenalty: "0",
+      });
+  }
   failure(
     id: string,
     agent: string,
@@ -17,6 +34,10 @@ export class Penalties {
     reason = "PLATFORM_TIMEOUT",
   ) {
     this.epochs.incident(id, agent, reason, now);
+    if (this.hasSecurityEvidence(agent)) {
+      this.agents.db.transaction(() => this.holdSecurityIsolation(agent));
+      return;
+    }
     const releasedAt =
       this.agents.db.get<{ releasedAt?: number }>("quarantine", agent)
         ?.releasedAt ?? 0;
@@ -48,6 +69,13 @@ export class Penalties {
     }
   }
   observeResearch(now = Date.now()) {
+    // Immutable, previously verified evidence survives old admin releases and restarts.
+    this.agents.db.transaction(() => {
+      for (const agent of new Set(
+        this.agents.db.all<{ agent: string }>("evidence").map((e) => e.agent),
+      ))
+        this.holdSecurityIsolation(agent);
+    });
     for (const attempt of this.agents.db.all<{
       id: string;
       agent: string;
@@ -73,7 +101,8 @@ export class Penalties {
       if (
         record.reason !== "REPEATED_PLATFORM_FAILURE" ||
         record.until === null ||
-        now < record.until
+        now < record.until ||
+        this.hasSecurityEvidence(record.agent)
       )
         continue;
       try {
@@ -83,7 +112,11 @@ export class Penalties {
             "quarantine",
             record.agent,
           );
-          if (live?.reason !== record.reason || live.until !== record.until)
+          if (
+            live?.reason !== record.reason ||
+            live.until !== record.until ||
+            this.hasSecurityEvidence(record.agent)
+          )
             return;
           this.agents.update(record.agent, { jailed: false });
           this.agents.db.put("quarantine", record.agent, {
@@ -115,17 +148,37 @@ export class Penalties {
       throw Error("not conflicting final commitments");
     const agent = this.agents.get(a.master),
       epoch = this.epochs.get(a.epoch);
-    if (!epoch.committee.some((c) => c.id === a.master))
-      throw Error("signer outside committee");
+    const signer = epoch.committee.find((c) => c.id === a.master);
     if (
-      !verifyQsp(this.chainId, a, signature1, agent.wallet) ||
-      !verifyQsp(this.chainId, b, signature2, agent.wallet)
+      !signer ||
+      a.committeeHash !== hash(epoch.committee) ||
+      b.committeeHash !== hash(epoch.committee)
+    )
+      throw Error("evidence does not bind the frozen committee");
+    if (
+      a.view > epoch.view ||
+      a.view >= epoch.committee.length ||
+      leader(
+        epoch.committee,
+        epoch.rotationSlot ?? epoch.slot % epoch.config.termSlots,
+        a.view,
+      ).id !== a.master
+    )
+      throw Error("evidence signer is not the elected Master for this view");
+    if (hash(a) !== hash(first) || hash(b) !== hash(second))
+      throw Error("evidence payload normalization mismatch");
+    if (
+      !verifyQsp(this.chainId, a, signature1, signer.wallet) ||
+      !verifyQsp(this.chainId, b, signature2, signer.wallet)
     )
       throw Error("invalid evidence signature");
     const id = hash([a.master, ...[hash(a), hash(b)].sort()]);
     return this.agents.db.transaction(() => {
       const old = this.agents.db.get("evidence", id);
-      if (old) return old;
+      if (old) {
+        this.holdSecurityIsolation(agent.id);
+        return old;
+      }
       const record = {
         id,
         agent: agent.id,
@@ -148,12 +201,23 @@ export class Penalties {
     });
   }
   release(agent: string) {
-    const a = this.agents.get(agent);
-    this.agents.update(a.id, { jailed: false });
-    this.agents.db.put("quarantine", a.id, {
-      agent,
-      releasedAt: Date.now(),
-      financialPenalty: "0",
+    return this.agents.db.transaction(() => {
+      const a = this.agents.get(agent),
+        record = this.agents.db.get<{ reason?: string }>("quarantine", agent);
+      if (
+        this.hasSecurityEvidence(agent) ||
+        (record?.reason && record.reason !== "REPEATED_PLATFORM_FAILURE")
+      )
+        throw Error("security quarantine cannot be manually released");
+      if (!a.jailed) return;
+      if (record?.reason !== "REPEATED_PLATFORM_FAILURE")
+        throw Error("only operational quarantine can be released");
+      this.agents.update(a.id, { jailed: false });
+      this.agents.db.put("quarantine", a.id, {
+        agent,
+        releasedAt: Date.now(),
+        financialPenalty: "0",
+      });
     });
   }
 }

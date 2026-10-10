@@ -54,6 +54,17 @@ test("HTTP user identity cannot be forged and another owner cannot read or mutat
       (await req(`/agents/${agent.id}/exit`, bob.token, "POST", {})).status,
       404,
     );
+    assert.equal(
+      (await req(`/agents/${agent.id}/withdraw`, bob.token, "POST", {})).status,
+      404,
+    );
+    for (const action of ["transfer", "export-key", "execute"]) {
+      assert.equal(
+        (await req(`/agents/${agent.id}/${action}`, alice.token, "POST", {}))
+          .status,
+        404,
+      );
+    }
     const detail = (await (
       await req(`/agents/${agent.id}`, alice.token)
     ).json()) as any;

@@ -1,3 +1,5 @@
+import { createApi } from "../src/server.js";
+import { Budget } from "../src/budget.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
@@ -63,6 +65,33 @@ test("signed equivocation is deduplicated and quarantined without debiting princ
     s2 = await vault.withWallet(w, (k) =>
       k.signMessage(signingMessage(97, second)),
     );
+  const forgedFirst = { ...first, committeeHash: "not-the-frozen-committee" },
+    forgedSecond = { ...second, committeeHash: "not-the-frozen-committee" };
+  const f1 = await vault.withWallet(w, (k) =>
+    k.signMessage(signingMessage(97, forgedFirst)),
+  );
+  const f2 = await vault.withWallet(w, (k) =>
+    k.signMessage(signingMessage(97, forgedSecond)),
+  );
+  assert.throws(
+    () => penalties.evidence(forgedFirst, f1, forgedSecond, f2),
+    /committee/,
+  );
+  assert.equal(db.all("evidence").length, 0);
+  const other = nodes.find((n) => n.id !== e.master)!;
+  const wrongFirst = { ...first, master: other.id },
+    wrongSecond = { ...second, master: other.id };
+  const otherWallet = db.get<EncryptedWallet>("wallet", other.id)!;
+  const wrong1 = await vault.withWallet(otherWallet, (k) =>
+    k.signMessage(signingMessage(97, wrongFirst)),
+  );
+  const wrong2 = await vault.withWallet(otherWallet, (k) =>
+    k.signMessage(signingMessage(97, wrongSecond)),
+  );
+  assert.throws(
+    () => penalties.evidence(wrongFirst, wrong1, wrongSecond, wrong2),
+    /elected Master/,
+  );
   penalties.evidence(first, s1, second, s2);
   penalties.evidence(second, s2, first, s1);
   assert.equal(db.all("evidence").length, 1);
@@ -73,6 +102,53 @@ test("signed equivocation is deduplicated and quarantined without debiting princ
     () => penalties.evidence(first, s1, first, s1),
     /not conflicting/,
   );
+  const adminToken = "admin-token-long-enough-for-tests";
+  const server = createApi({
+    agents,
+    budget: new Budget(db),
+    epochs,
+    penalties,
+    adminToken,
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const response = await fetch(
+      `http://127.0.0.1:${(server.address() as any).port}/admin/unjail`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ agent: e.master }),
+      },
+    );
+    assert.equal(response.status, 400);
+    assert.equal(agents.get(e.master).jailed, true);
+    assert.equal(db.all("evidence").length, 1);
+    // Ordinary operational isolation remains explicitly releasable through the same route.
+    agents.update(other.id, { jailed: true });
+    db.put("quarantine", other.id, {
+      agent: other.id,
+      reason: "REPEATED_PLATFORM_FAILURE",
+      until: 0,
+    });
+    const released = await fetch(
+      `http://127.0.0.1:${(server.address() as any).port}/admin/unjail`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${adminToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ agent: other.id }),
+      },
+    );
+    assert.equal(released.status, 200);
+    assert.equal(agents.get(other.id).jailed, false);
+  } finally {
+    await new Promise<void>((r) => server.close(() => r()));
+  }
   db.close();
 });
 
@@ -129,4 +205,86 @@ test("operational incidents never downgrade conflicting-signature quarantine", a
   assert.equal(agent.jailed, true);
   assert.equal(db.get<any>("quarantine", "a").reason, "CONFLICTING_SIGNATURE");
   db.close();
+});
+
+test("manual release cannot clear security evidence or unknown quarantine reasons", () => {
+  const db = new Store(":memory:");
+  let agent = { id: "a", jailed: true };
+  const agents: any = {
+    db,
+    get: () => agent,
+    update: (_id: string, change: any) => (agent = { ...agent, ...change }),
+  };
+  const penalties = new Penalties(agents, new Epochs(db), 97, 1, 10);
+  try {
+    for (const reason of ["CONFLICTING_SIGNATURE", "STATE_INTEGRITY_FAILURE"]) {
+      db.put("quarantine", "a", { agent: "a", reason, until: null });
+      assert.throws(() => penalties.release("a"), /security|operational/);
+      assert.equal(agent.jailed, true);
+    }
+    db.put("quarantine", "a", {
+      agent: "a",
+      reason: "REPEATED_PLATFORM_FAILURE",
+      until: 0,
+    });
+    db.put("evidence", "verified", { id: "verified", agent: "a" });
+    assert.throws(() => penalties.release("a"), /security/);
+    db.remove("evidence", "verified");
+    penalties.release("a");
+    assert.equal(agent.jailed, false);
+  } finally {
+    db.close();
+  }
+});
+test("persisted security evidence restores an old release and blocks automatic recovery", async () => {
+  const db = new Store(":memory:");
+  let agent = { id: "a", jailed: false };
+  const agents: any = {
+    db,
+    get: () => agent,
+    update: (_id: string, change: any) => (agent = { ...agent, ...change }),
+  };
+  const penalties = new Penalties(agents, new Epochs(db), 97, 1, 10);
+  try {
+    db.put("evidence", "verified", { id: "verified", agent: "a" });
+    db.put("quarantine", "a", { agent: "a", releasedAt: 1 });
+    penalties.observeResearch(100);
+    assert.equal(agent.jailed, true);
+    assert.equal(
+      db.get<any>("quarantine", "a").reason,
+      "CONFLICTING_SIGNATURE",
+    );
+    penalties.failure("attempt", "a", 100, "INVALID_OUTPUT");
+    await penalties.recoverOperational(async () => true, 1000);
+    assert.equal(agent.jailed, true);
+    assert.equal(db.all("evidence").length, 1);
+    assert.equal(db.all("slash").length, 0);
+  } finally {
+    db.close();
+  }
+});
+test("security evidence arriving during a health probe prevents an operational release", async () => {
+  const db = new Store(":memory:");
+  let agent = { id: "a", jailed: true };
+  const agents: any = {
+    db,
+    get: () => agent,
+    update: (_id: string, change: any) => (agent = { ...agent, ...change }),
+  };
+  const penalties = new Penalties(agents, new Epochs(db), 97, 1, 10);
+  try {
+    db.put("quarantine", "a", {
+      agent: "a",
+      reason: "REPEATED_PLATFORM_FAILURE",
+      until: 1,
+    });
+    await penalties.recoverOperational(async () => {
+      // The evidence ledger is authoritative even if an old release/operational row remains.
+      db.put("evidence", "verified", { id: "verified", agent: "a" });
+      return true;
+    }, 100);
+    assert.equal(agent.jailed, true);
+  } finally {
+    db.close();
+  }
 });
