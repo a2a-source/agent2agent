@@ -282,6 +282,8 @@ export class InvestmentExecution {
     );
     if (snapshot.registryHash !== hash(this.collector.registry))
       throw Error("execution registry differs from signed snapshot");
+    if (this.openingGasReserve(snapshot) !== this.gasReserveWei)
+      throw Error("execution gas reserve differs from opening capture");
     const orders = compileExecutionOrders(
       plan,
       snapshot,
@@ -383,6 +385,8 @@ export class InvestmentExecution {
     const { id, ...body } = snapshot;
     if (id !== plan.snapshotId || hash(body) !== id)
       throw Error("NO_ACTION snapshot integrity");
+    if (this.openingGasReserve(snapshot) !== this.gasReserveWei)
+      throw Error("NO_ACTION gas reserve differs from opening capture");
     const q = qspV2Schema.parse(epoch.output),
       consumptionId = hash([
         "stable-qsp-consumption/1",
@@ -456,7 +460,28 @@ export class InvestmentExecution {
     j.reason = "NO_ACTION";
     this.save(j);
   }
-  /** Recovery follows the original public deployment, never mutable current settings. */
+  private openingGasReserve(opening: PortfolioSnapshot): string {
+    const capture = this.db.get<any>("portfolio-capture", opening.requestId);
+    const { id, ...body } = opening;
+    const reserve = capture?.request?.gasReserveWei;
+    if (
+      hash(body) !== id ||
+      capture?.status !== "DONE" ||
+      capture.snapshotId !== id ||
+      hash([opening.chainId, capture.request?.id]) !== opening.requestId ||
+      capture.request?.agent !== opening.agent ||
+      capture.request?.wallet?.toLowerCase() !== opening.wallet ||
+      hash(capture.registry) !== opening.registryHash ||
+      typeof reserve !== "string" ||
+      !/^(0|[1-9][0-9]*)$/.test(reserve) ||
+      opening.holdings.filter((h) => h.asset === "native").length !== 1 ||
+      opening.holdings.find((h) => h.asset === "native")?.gasExcluded !==
+        reserve
+    )
+      throw Error("opening capture gas reserve unavailable or inconsistent");
+    return reserve;
+  }
+  /** Preserve deployment identity and the reserve measured by the opening capture. */
   private recoverySettings(j: ExecutionJob) {
     const deployment = this.db.get<any>(
       "investment-execution-config",
@@ -489,7 +514,7 @@ export class InvestmentExecution {
       throw Error("invalid original execution recovery settings");
     return {
       registry,
-      gasReserveWei: deployment.gasReserveWei as string,
+      gasReserveWei: this.openingGasReserve(opening),
       opening,
     };
   }

@@ -585,12 +585,13 @@ test("NO_ACTION members get observations while unexplained balance changes remai
   const x = await setup(t),
     idleWallet = Wallet.createRandom().address.toLowerCase();
   const originalBalances = new Map(x.balances);
-  for (const asset of x.balances.keys()) x.balances.set(asset, 0n);
+  for (const asset of x.balances.keys())
+    x.balances.set(asset, asset === "native" ? 1000000n : 0n);
   const idleSnapshot = await x.collector.collect({
     id: "idle-opening",
     agent: "idle",
     wallet: idleWallet,
-    gasReserveWei: "0",
+    gasReserveWei: "1000000",
     reservationSource: "empty",
     reserved: Object.fromEntries(
       x.collector.registry.assets.map((a) => [a.asset, "0"]),
@@ -752,12 +753,13 @@ for (const incomingStatus of ["READY", "NO_ACTION"] as const)
       const wallet = Wallet.createRandom().address.toLowerCase();
       const previousBalances = new Map(x.balances);
       if (incomingStatus === "NO_ACTION")
-        for (const asset of x.balances.keys()) x.balances.set(asset, 0n);
+        for (const asset of x.balances.keys())
+          x.balances.set(asset, asset === "native" ? 1000000n : 0n);
       const snapshot = await x.collector.collect({
         id: "concurrent-plan",
         agent: "second",
         wallet,
-        gasReserveWei: incomingStatus === "NO_ACTION" ? "0" : "1000000",
+        gasReserveWei: "1000000",
         reservationSource: "empty",
         reserved: Object.fromEntries(
           x.collector.registry.assets.map((a) => [a.asset, "0"]),
@@ -1096,4 +1098,81 @@ test("persistent receipt RPC failures give every due recovery job a bounded turn
     x.db.get<any>("wallet-reservation", original.reservationId!).status,
     "RESERVED",
   );
+});
+
+test("a gas reserve change before discovery rejects old READY and NO_ACTION captures", async (t) => {
+  for (const noAction of [false, true]) {
+    const x = await setup(t, noAction);
+    x.restart({ enabled: true }, "1000000000000000000");
+    await x.tick();
+    assert.equal(x.db.all("wallet-reservation").length, 0);
+    assert.equal(x.db.all("transaction").length, 0);
+    x.advance(700000);
+    await x.tick();
+    assert.equal(x.job().status, "ABORTED");
+    assert.equal(x.db.all("execution-cashflow-proof").length, 0);
+  }
+});
+
+test("already initialized jobs with mismatched deployment reserve recover using the opening capture", async (t) => {
+  const { hash } = await import("../src/protocol.js");
+  for (const noAction of [false, true]) {
+    const x = await setup(t, noAction);
+    await x.tick();
+    const job = x.job();
+    // Reproduce persisted jobs admitted before the reserve consistency guard.
+    const deployment = x.db.get<any>(
+      "investment-execution-config",
+      job.configHash,
+    );
+    const changed = { ...deployment, gasReserveWei: "1000000000000000000" };
+    const changedHash = hash(changed);
+    x.db.put("investment-execution-config", changedHash, changed);
+    x.db.put("investment-execution-job", job.id, {
+      ...job,
+      configHash: changedHash,
+    });
+    x.restart({ enabled: false }, changed.gasReserveWei);
+    x.mineEmpty();
+    const done = await x.finish();
+    assert.equal(
+      done.status,
+      noAction ? "DONE" : "ABORTED",
+      JSON.stringify(done),
+    );
+    const closing = x.db.get<any>(
+      "portfolio-snapshot",
+      done.closingSnapshotId!,
+    );
+    const capture = x.db.get<any>("portfolio-capture", closing.requestId);
+    assert.equal(capture.request.gasReserveWei, "1000000");
+    assert.equal(
+      closing.holdings.find((h: any) => h.asset === "native").gasExcluded,
+      "1000000",
+    );
+    assert.equal(x.db.all("transaction").length, 0);
+    if (!noAction)
+      assert.equal(
+        x.db.get<any>("wallet-reservation", job.reservationId!).status,
+        "ABORTED",
+      );
+  }
+});
+
+test("recovery cannot replace the opening snapshot gas exclusion with a modified capture reserve", async (t) => {
+  const x = await setup(t, true);
+  await x.tick();
+  const capture = x.db.get<any>("portfolio-capture", x.opening.requestId);
+  x.db.put("portfolio-capture", x.opening.requestId, {
+    ...capture,
+    request: { ...capture.request, gasReserveWei: "0" },
+  });
+  x.mineEmpty();
+  await x.tick();
+  assert.equal(x.job().status, "RECONCILING");
+  assert.equal(x.job().lastError, "EXECUTION_RETRY_PENDING");
+  assert.equal(x.job().closingSnapshotId, undefined);
+  assert.equal(x.db.all("execution-cashflow-proof").length, 0);
+  x.db.put("portfolio-capture", x.opening.requestId, capture);
+  assert.equal((await x.finish()).status, "DONE");
 });
