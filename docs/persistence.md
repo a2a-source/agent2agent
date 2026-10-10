@@ -12,6 +12,7 @@ Persistence is a system requirement: protocol inputs, participants, state transi
 | Confirmation and final artifact | `research-final`, `commitment`, `confirmation-proposal`, `confirmation-intent`, `confirmation-vote`, published epoch data |
 | Chain operations and budgets | `transaction`, transaction errors, credit/reservation/balance and reconciliation records |
 | Investment preview | `investment-preview` stores validated input, evaluation time and DONE/REJECTED outcome for the CLI |
+| Confirmed tracked portfolios and stable plans | `portfolio-capture`, `portfolio-observation`, `portfolio-snapshot`, `stable-wallet-plan` (read-only, unsigned reference plans) |
 | Investment reference risk | `investment-risk-cycle`, `investment-risk-order` (reference reservations, not executed trades) |
 | Round accounting | `performance-input`, `performance-round`, `performance-agent`, `performance-investment` |
 
@@ -29,6 +30,6 @@ Backups must include the complete SQLite database, including history, using the 
 
 This requirement is broader than the current coverage. The standalone wallet-preview CLI now commits its validated input and result/rejection. Direct calculator calls and QSP-to-wallet adaptation still need integration into the investment orchestrator; the CLI journal is not that orchestrator. Invalid input schemas are rejected before archival, rather than storing arbitrary untrusted fields as protocol data. Pre-dispatch provider refusal is not yet a complete request-attempt record. Historical hash-only contexts are not backfilled with invented content.
 
-Stable-reserve portfolio collection, executable per-wallet decisions, DEX quotes, order dispatch, receipts, reconciliation and confirmed valuation/flow attribution must persist before those workflows can be accepted. They are not enabled by the reference risk guard. Current automatic round accounting explicitly records missing data rather than fabricated profit or zero returns. See [investment risk](investment-risk.md) and [performance accounting](performance-ledger.md).
+The [tracked portfolio collector and stable reference planner](stable-wallet-plans.md) now persist confirmed-block data and unsigned plans. Complete registry/reservation integration, signed QSP adaptation, executable per-wallet decisions, DEX quotes, order dispatch, receipts, reconciliation and confirmed valuation/flow attribution must persist before those workflows can be accepted. They are not enabled by the reference risk guard. Current automatic round accounting explicitly records missing data rather than fabricated profit or zero returns. See [investment risk](investment-risk.md) and [performance accounting](performance-ledger.md).
 
 Acceptance for each subsequent workflow must demonstrate: durable inputs and outputs, persisted failure/interruption state, restart recovery without duplicate side effects, atomic updates, ownership-aware queries, and links from each result back to its round and source records. Terminal logs and temporary JSON files alone do not meet this requirement.
