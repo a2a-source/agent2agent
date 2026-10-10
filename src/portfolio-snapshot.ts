@@ -1,3 +1,7 @@
+import {
+  observationBoundarySchema,
+  type ObservationBoundary,
+} from "./performance-ledger.js";
 import { z } from "zod";
 import { Contract, isAddress, JsonRpcApiProvider, ZeroAddress } from "ethers";
 import { Store } from "./store.js";
@@ -193,6 +197,21 @@ export class PortfolioCollector {
     this.registry = portfolioRegistrySchema.parse(registry);
   }
   async collect(raw: unknown): Promise<PortfolioSnapshot> {
+    return this.collectWithPolicy(raw);
+  }
+  async collectAt(
+    raw: unknown,
+    boundary: ObservationBoundary,
+  ): Promise<PortfolioSnapshot> {
+    return this.collectWithPolicy(
+      raw,
+      observationBoundarySchema.parse(boundary),
+    );
+  }
+  private async collectWithPolicy(
+    raw: unknown,
+    boundary?: ObservationBoundary,
+  ): Promise<PortfolioSnapshot> {
     const request = requestSchema.parse(raw),
       c = this.registry;
     if (
@@ -201,7 +220,16 @@ export class PortfolioCollector {
     )
       throw Error("complete reservation snapshot required");
     const key = hash([c.chainId, request.id]),
-      fingerprint = hash({ request, registry: c });
+      fingerprint = boundary
+        ? hash({ request, registry: c, mode: "round-observation", boundary })
+        : hash({ request, registry: c });
+    if (
+      boundary &&
+      (request.gasReserveWei !== "0" ||
+        request.reservationSource !== "round-observation" ||
+        Object.values(request.reserved).some((v) => v !== "0"))
+    )
+      throw Error("accounting requires full unreserved NAV");
     const prior = this.db.get<any>("portfolio-capture", key);
     if (prior) {
       if (prior.fingerprint !== fingerprint)
@@ -222,6 +250,7 @@ export class PortfolioCollector {
       fingerprint,
       startedAt,
       status: "READING",
+      ...(boundary ? { mode: "round-observation", boundary } : {}),
     };
     this.db.insert("portfolio-capture", key, capture);
     try {
@@ -229,14 +258,20 @@ export class PortfolioCollector {
         throw Error("chain mismatch");
       const tip = integer.parse(await this.reader.tip());
       if (tip < c.confirmations) throw Error("insufficient confirmations");
-      const block = await this.reader.block(tip - c.confirmations);
+      const target = boundary?.blockNumber ?? tip - c.confirmations;
+      if (target > tip - c.confirmations)
+        throw Error("insufficient boundary confirmations");
+      const block = await this.reader.block(target);
       if (
-        block.number !== tip - c.confirmations ||
+        block.number !== target ||
+        (boundary &&
+          (block.hash.toLowerCase() !== boundary.blockHash.toLowerCase() ||
+            block.timestamp * 1000 !== boundary.blockTimeMs)) ||
         !/^0x[0-9a-fA-F]{64}$/.test(block.hash) ||
         !Number.isSafeInteger(block.timestamp) ||
         block.timestamp <= 0 ||
         block.timestamp * 1000 > startedAt ||
-        startedAt - block.timestamp * 1000 >= c.maxBlockAgeMs
+        (!boundary && startedAt - block.timestamp * 1000 >= c.maxBlockAgeMs)
       )
         throw Error("invalid or stale block");
       let validUntil = block.timestamp * 1000 + c.maxBlockAgeMs;
@@ -283,7 +318,9 @@ export class PortfolioCollector {
           BigInt(p.roundId) <= 0n ||
           BigInt(p.answeredInRound) < BigInt(p.roundId) ||
           p.updatedAt > block.timestamp ||
-          startedAt - p.updatedAt * 1000 >= c.maxPriceAgeMs
+          (boundary ? block.timestamp * 1000 : startedAt) -
+            p.updatedAt * 1000 >=
+            c.maxPriceAgeMs
         )
           throw Error("invalid or stale asset oracle");
         validUntil = Math.min(validUntil, p.updatedAt * 1000 + c.maxPriceAgeMs);
@@ -313,8 +350,10 @@ export class PortfolioCollector {
         observedAt = integer.parse(this.clock());
       if (
         check.hash !== block.hash ||
+        check.number !== block.number ||
+        check.timestamp !== block.timestamp ||
         observedAt < startedAt ||
-        observedAt >= validUntil
+        (!boundary && observedAt >= validUntil)
       )
         throw Error("reorg or expired observation");
       const sum = (bucket: string, field: "valueMicros" | "availableMicros") =>

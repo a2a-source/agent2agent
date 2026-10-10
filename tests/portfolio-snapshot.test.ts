@@ -239,3 +239,77 @@ test("ethers reader bypasses provider getBlock cache for both canonical hash che
   assert.notEqual(first.hash, second.hash);
   assert.equal(reads, 2);
 });
+
+test("historical accounting reads keep actual read time, full native NAV and a pinned boundary", async () => {
+  const db = new Store(":memory:");
+  try {
+    const c = new PortfolioCollector(db, reader(), registry, () => 2000000),
+      boundary = {
+        blockNumber: 10,
+        blockHash: "0x" + "11".repeat(32),
+        blockTimeMs: 990000,
+      };
+    const req = {
+      ...request,
+      gasReserveWei: "0",
+      reservationSource: "round-observation",
+    };
+    const s = await c.collectAt(req, boundary);
+    assert.equal(s.observedAt, 2000000);
+    assert.equal(s.blockNumber, 10);
+    assert.equal(s.navMicros, "990100000");
+    assert.ok(s.validUntil < 2000000);
+    assert.deepEqual(await c.collectAt(req, boundary), s);
+    await assert.rejects(c.collect(req), /conflict/);
+    await assert.rejects(
+      c.collectAt(req, { ...boundary, blockNumber: 11 }),
+      /conflict/,
+    );
+    await assert.rejects(c.collect({ ...req, id: "fresh" }));
+  } finally {
+    db.close();
+  }
+});
+test("accounting pin rejects unconfirmed, reorg and wrong timestamp boundaries and retains partial observations", async () => {
+  for (const kind of ["confirmation", "hash", "time", "partial"]) {
+    const db = new Store(":memory:");
+    try {
+      const r = reader(),
+        boundary = {
+          blockNumber: 10,
+          blockHash: "0x" + "11".repeat(32),
+          blockTimeMs: 990000,
+        };
+      if (kind === "confirmation") r.tip = async () => 11;
+      if (kind === "hash") boundary.blockHash = "0x" + "22".repeat(32);
+      if (kind === "time") boundary.blockTimeMs = 989000;
+      if (kind === "partial") {
+        const original = r.read;
+        r.read = async (...args) => {
+          if (args[0].asset !== "native") throw Error("offline");
+          return original(...args);
+        };
+      }
+      await assert.rejects(
+        new PortfolioCollector(db, r, registry, () => 2000000).collectAt(
+          {
+            ...request,
+            gasReserveWei: "0",
+            reservationSource: "round-observation",
+          },
+          boundary,
+        ),
+      );
+      assert.equal(db.all("portfolio-snapshot").length, 0);
+      if (kind === "partial")
+        assert.equal(
+          db
+            .all<any>("portfolio-observation")
+            .filter((x) => x.status === "RETURNED").length,
+          1,
+        );
+    } finally {
+      db.close();
+    }
+  }
+});
