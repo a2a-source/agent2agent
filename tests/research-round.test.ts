@@ -548,6 +548,7 @@ for (const testnet of [false, true]) {
           );
       }
       for (const prompt of masterPrompts) {
+        assert.deepEqual(prompt.reportTemplate, config.reportTemplates.master);
         assert(decisionSchema.safeParse(prompt.requiredOutput).success);
         assert.deepEqual(
           prompt.signalEvidenceRequirements.map((r: any) => [

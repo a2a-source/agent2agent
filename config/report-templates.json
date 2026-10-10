@@ -172,7 +172,7 @@
       {
         "id": "strategy",
         "title": "Proposed strategy",
-        "instruction": "Explain structured signals or reason for no signals, allocation basis and hard-rule priority. Proposals are unexecuted."
+        "instruction": "Explain wallet-specific signals or their absence separately from common market targets and their evidence. Distinguish null (no supported common recommendation) from zero exposure targets, which can cause independent-wallet reductions even with empty signals. Keep the summary consistent with the targets; explain an evidenced all-zero allocation explicitly. Preserve hard-rule priority. Proposals are unexecuted."
       },
       {
         "id": "limitations",
