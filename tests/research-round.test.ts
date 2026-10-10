@@ -79,18 +79,16 @@ test("three v2 rounds bind actual context, previous package, independent reports
       [{ ...asset, quantity: qty, priceMicros: price, costMicros: null }],
       true,
     );
-    const markets = [
-      {
-        ...asset,
-        priceMicros: price,
-        asOf: now,
-        changeBps: 100,
-        volatilityBps: 50,
-        smaMicros: price,
-        samples: 60,
-        evidenceId: proof.id,
-      },
-    ];
+    const markets = config.research.assets.map((marketAsset) => ({
+      ...marketAsset,
+      priceMicros: price,
+      asOf: now,
+      changeBps: 100,
+      volatilityBps: 50,
+      smaMicros: price,
+      samples: 60,
+      evidenceId: proof.id,
+    }));
     return contextSchema.parse({
       version: "research-context/1",
       at: now,
@@ -233,6 +231,22 @@ test("three v2 rounds bind actual context, previous package, independent reports
                 reason: "Data gaps preserved",
               })),
               disagreements: [],
+              networkAllocation:
+                round === 1
+                  ? null
+                  : {
+                      version: "network-allocation/1",
+                      scope: "NETWORK_MODEL_PORTFOLIO",
+                      targets: config.research.assets.map((a) => ({
+                        asset: a.address,
+                        targetWeightBps: 0,
+                        evidence: [x.context.evidence[0].id],
+                        rationale: "Synthetic zero-token model allocation",
+                      })),
+                      limitations: [
+                        "Synthetic provider fixture; no executable quotes",
+                      ],
+                    },
               signals: [],
               risks: ["No verified liquidity"],
             }
@@ -325,6 +339,18 @@ test("three v2 rounds bind actual context, previous package, independent reports
       assert.equal(out.version, "a2a-qsp/2");
       if (out.version !== "a2a-qsp/2") throw Error("version");
       assert.equal(out.reports.length, 6);
+      if (i === 0) assert.equal(out.masterSummary.networkAllocation, null);
+      else {
+        assert.equal(out.masterSummary.networkAllocation?.targets.length, 3);
+        assert.equal(
+          out.masterSummary.networkAllocation?.targets[0]?.evidence[0],
+          out.context.evidence[0]?.id,
+        );
+      }
+      assert.equal(
+        masterPrompts.at(-1).networkAllocationInstructions.scope,
+        "NETWORK_MODEL_PORTFOLIO",
+      );
       assert.equal(out.researchChecks?.profile, "c4/1");
       assert.equal(
         qspV2Schema.safeParse({
@@ -447,6 +473,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
           "summary",
           "decisions",
           "disagreements",
+          "networkAllocation",
           "signals",
           "risks",
         ].sort(),

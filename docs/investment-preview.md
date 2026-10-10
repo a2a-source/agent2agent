@@ -1,6 +1,6 @@
 # Independent-wallet investment preview
 
-The next-stage foundation is a deterministic **reference-price calculator**, available as `planWallet` in `src/wallet-planner.ts`. It accepts an explicit target allocation, wallet snapshot and policy. It does not yet consume published QSP, produce authorized orders, fetch balances, reserve funds, simulate DEX fills or execute trades. Each wallet's principal and future P&L remain separate.
+The next-stage foundation is a deterministic **reference-price calculator**, available as `planWallet` in `src/wallet-planner.ts`. It accepts an explicit target allocation, wallet snapshot and policy. The calculator itself does not consume published QSP, produce authorized orders, fetch balances, reserve funds, simulate DEX fills or execute trades. A separate [verified QSP consumer](network-allocation.md) can now feed explicit shared model targets into it. Each wallet's principal and future P&L remain separate.
 
 ## Run the synthetic example
 
@@ -24,6 +24,6 @@ The policy bounds per-token and aggregate target weights and absolute reference 
 
 ## Integration still required
 
-Current QSP v2 signals are tied to `context.portfolioIdentity.wallet`. A risk-reduction SELL for one wallet is not a universal market SELL. Do not copy those signals into this calculator as a network-wide strategy. The next protocol step must distinguish shared market allocation from wallet-specific risk adjustments, bind its applicability and committee confirmation, and define machine-checkable conditions.
+Current QSP v2 signals are tied to `context.portfolioIdentity.wallet`. A risk-reduction SELL for one wallet is not a universal market SELL. Do not copy those signals into this calculator as a network-wide strategy. The [shared-allocation extension](network-allocation.md) now distinguishes shared market allocation and binds it to committee confirmation. Machine-checkable execution conditions and wallet authorization still require the execution stage.
 
 Execution additionally requires explicit wallet authorization, fresh canonical balance checks, qualification/exit-state policy, shared transaction reservations, allowlisted DEX routes, actual quotes, slippage/deadlines, receipt reconciliation and an independent execution ledger referencing the immutable QSP hash. None is enabled by this calculator. Profit distribution remains separate. Existing [v0.1 boundaries](v0.1-boundaries.md), including B1 and C4 acceptance limits, remain in force.

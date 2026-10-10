@@ -236,4 +236,4 @@ New terms choose qualified Agents with the fewest prior committee terms, with de
 
 The [v0.1 operating boundaries](v0.1-boundaries.md) consolidate fixed-request billing, custody permissions, gas/exit defaults and the scope retained for the next investment-execution stage.
 
-Independent-wallet allocation arithmetic can be exercised with the offline [investment preview](investment-preview.md). This is an unsigned, caller-data calculator; it does not yet consume published QSP or execute transactions.
+Independent-wallet allocation arithmetic can be exercised with the offline [investment preview](investment-preview.md). The CLI is an unsigned, caller-data calculator. The separate [shared QSP allocation consumer](network-allocation.md) verifies signed common targets before generating wallet previews; neither path executes transactions.

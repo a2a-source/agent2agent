@@ -296,6 +296,11 @@ export async function buildResearchPackage(p: {
           task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
           context: promptContext,
           reportTemplate: config.reportTemplates.master,
+          networkAllocationInstructions: {
+            scope: "NETWORK_MODEL_PORTFOLIO",
+            instruction:
+              "Return networkAllocation=null if common market allocation lacks evidence. Otherwise use {version:'network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Cover EVERY configured asset including explicit zero targets. This is a model portfolio independent of the observed wallet. Do not infer targets from its holdings, overweight correction or wallet-specific signals. Cite frozen market evidence used by role reports for every asset. Positive weights require fresh observed liquidity and citation of that matching frozen DEX pool evidence as well as market evidence. Follow context.policy caps; residual allocation is volatile native BNB, not stable cash. Preserve limitations and uncertainty. These are research targets, not authorization or conditional executable orders. Do not invent targets just to populate the field.",
+          },
           signalEvidenceRequirements: promptContext.markets.map((m) => ({
             asset: m.asset,
             symbol: m.symbol,
@@ -318,6 +323,7 @@ export async function buildResearchPackage(p: {
             })),
             disagreements: [],
             signals: [],
+            networkAllocation: null,
             risks: [
               "Replace with an evidence-based risk or explicit limitation",
             ],
@@ -354,6 +360,10 @@ export async function buildResearchPackage(p: {
       const result = decisionSchema.parse(raw);
       for (const s of result.signals)
         s.evidence = s.evidence.map((id) => evidenceRef(id, context).id);
+      for (const target of result.networkAllocation?.targets ?? [])
+        target.evidence = target.evidence.map(
+          (id) => evidenceRef(id, context).id,
+        );
       if (result.sections)
         for (const section of result.sections)
           section.evidenceRefs = section.evidenceRefs.map((ref) =>

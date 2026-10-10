@@ -1,4 +1,8 @@
 import {
+  networkAllocationSchema,
+  validateNetworkAllocation,
+} from "./network-allocation.js";
+import {
   templateSchema,
   reportSectionSchema,
   validateReportSections,
@@ -79,6 +83,7 @@ export const decisionSchema = z
       .min(1)
       .max(24),
     disagreements: strings,
+    networkAllocation: networkAllocationSchema.nullable().optional(),
     signals: z.array(researchSignalSchema).max(24),
     risks: strings.min(1),
   })
@@ -148,6 +153,14 @@ export function validateResearchDecision(
     roles = reports.map((r) => r.role),
     covered = d.decisions.map((x) => x.role);
   d.signals = enforceHardRiskConditions(d.signals, context);
+  if (d.networkAllocation)
+    validateNetworkAllocation(
+      d.networkAllocation,
+      context,
+      reports,
+      now,
+      maxAgeMs,
+    );
   if (
     new Set(roles).size !== roles.length ||
     new Set(covered).size !== covered.length ||
