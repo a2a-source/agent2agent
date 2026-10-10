@@ -413,7 +413,7 @@ export async function macroAnnouncements(signal?: AbortSignal) {
 }
 /** Fixed per-asset discovery in one Agent tool call, leaving rounds for source verification. */
 export function assetNewsTool(
-  symbols: string[],
+  symbols: (string | { symbol: string; marketSymbol: string })[],
   search: ResearchTool = researchTools().find((t) => t.name === "news_search")!,
   publisherSearch: ResearchTool = researchTools().find(
     (t) => t.name === "web_search",
@@ -423,6 +423,11 @@ export function assetNewsTool(
     BTCB: "Bitcoin",
     ETH: "Ethereum",
     WBNB: "BNB Chain",
+  };
+  const underlyingNames: Record<string, string> = {
+    BTCUSDT: "Bitcoin",
+    ETHUSDT: "Ethereum",
+    BNBUSDT: "BNB Chain",
   };
   const schema = z
     .object({ lookbackDays: z.union([z.literal(1), z.literal(7)]).default(1) })
@@ -435,8 +440,15 @@ export function assetNewsTool(
     run: async (input, signal) => {
       const { lookbackDays } = schema.parse(input);
       const rows = await Promise.all(
-        symbols.map(async (asset) => {
-          const name = names[asset];
+        symbols.map(async (configured) => {
+          // A test profile keeps its own token symbol while explicitly naming
+          // the underlying market whose news is reference evidence.
+          const asset =
+            typeof configured === "string" ? configured : configured.symbol;
+          const name =
+            typeof configured === "string"
+              ? names[configured]
+              : underlyingNames[configured.marketSymbol];
           if (!name) throw Error("unsupported news asset");
           const query = `${name} when:${lookbackDays}d`,
             output: any = await search.run({ query }, signal);

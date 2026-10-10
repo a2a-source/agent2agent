@@ -3,6 +3,8 @@ import {
   contextSchema,
   portfolioSnapshot,
   evidence,
+  type ResearchAsset,
+  type ResearchTestnetProfile,
 } from "../../src/research-context.js";
 import { hash } from "../../src/protocol.js";
 import { signingMessage } from "../../src/qsp.js";
@@ -27,7 +29,21 @@ export const assets = [
     marketSymbol: "BNBUSDT",
   },
 ];
-export async function stableFixture(epochId = "1") {
+export async function stableFixture(
+  epochId = "1",
+  profile?: {
+    chainId: 97;
+    assets: ResearchAsset[];
+    testnetProfile: ResearchTestnetProfile;
+  },
+  timing?: { now: number; maxAgeMs?: number; validForMs?: number },
+) {
+  const now = timing?.now ?? 1000;
+  const maxAgeMs = timing ? (timing.maxAgeMs ?? 600000) : 500;
+  const validForMs = timing ? (timing.validForMs ?? 600000) : 1000;
+  const deadline = timing ? now + validForMs : 1400;
+  const chainId = profile?.chainId ?? 56;
+  const fixtureAssets = profile?.assets ?? assets;
   const wallets = [
     Wallet.createRandom(),
     Wallet.createRandom(),
@@ -39,23 +55,24 @@ export async function stableFixture(epochId = "1") {
     stake: "300000000000000000",
     compute: "1000",
   }));
-  const proofs = assets.map((a) =>
-    evidence("market", `https://example.com/${a.symbol}`, 1000, {
+  const proofs = fixtureAssets.map((a) =>
+    evidence("market", `https://example.com/${a.symbol}`, now, {
       asset: a.address,
     }),
   );
-  const pools = assets.map((a) =>
-    evidence("dex", `https://example.com/pool/${a.symbol}`, 1000, {
+  const pools = fixtureAssets.map((a) =>
+    evidence("dex", `https://example.com/pool/${a.symbol}`, now, {
       asset: a.address,
     }),
   );
   const context = contextSchema.parse({
     version: "research-context/1",
-    at: 1000,
-    chainId: 56,
-    universe: assets,
+    at: now,
+    chainId,
+    universe: fixtureAssets,
+    ...(profile ? { testnetProfile: profile.testnetProfile } : {}),
     portfolio: portfolioSnapshot(
-      assets.map((a) => ({
+      fixtureAssets.map((a) => ({
         ...a,
         quantity: "0",
         priceMicros: "100000000",
@@ -72,23 +89,23 @@ export async function stableFixture(epochId = "1") {
       gasReserveWei: "0",
       stakeExcluded: true,
     },
-    markets: assets.map((a, i) => ({
+    markets: fixtureAssets.map((a, i) => ({
       ...a,
       priceMicros: "100000000",
-      asOf: 1000,
+      asOf: now,
       changeBps: 0,
       volatilityBps: 0,
       smaMicros: "100000000",
       samples: 60,
       evidenceId: proofs[i]!.id,
     })),
-    liquidity: assets.map((a, i) => ({
+    liquidity: fixtureAssets.map((a, i) => ({
       asset: a.address,
       pair: "fixture",
       dex: "fixture",
       liquidityUsd: 1000000,
       evidenceId: pools[i]!.id,
-      observedAt: 1000,
+      observedAt: now,
       sourceTimestamp: null,
     })),
     news: [],
@@ -103,10 +120,10 @@ export async function stableFixture(epochId = "1") {
       prices: [],
     },
     policy: {
-      dataMaxAgeMs: 500,
+      dataMaxAgeMs: maxAgeMs,
       maxAssetBps: 3000,
       maxTotalBps: 8000,
-      validForMs: 1000,
+      validForMs,
       minLiquidityUsd: 1000000,
       maxSlippageBps: 100,
     },
@@ -116,7 +133,7 @@ export async function stableFixture(epochId = "1") {
     scope: "NETWORK_MODEL_PORTFOLIO",
     reserve: "ALLOWLISTED_STABLECOINS",
     nativeBnb: "INCLUDED_IN_BNB_TARGET",
-    targets: assets.map((a, i) => ({
+    targets: fixtureAssets.map((a, i) => ({
       asset: a.address,
       targetWeightBps: 2000,
       evidence: [proofs[i]!.id, pools[i]!.id],
@@ -145,9 +162,9 @@ export async function stableFixture(epochId = "1") {
     master: "a0",
     committeeHash: hash(committee),
     configHash: "config",
-    dataAt: 1000,
-    createdAt: 1000,
-    validUntil: 2000,
+    dataAt: now,
+    createdAt: now,
+    validUntil: now + validForMs,
     contextHash: hash(context),
     context,
     reports,
@@ -171,21 +188,23 @@ export async function stableFixture(epochId = "1") {
     snapshotHash: "snapshot",
     configHash: "config",
     config: { termSlots: 7, committeeSize: 3, timeoutMs: 500 },
-    deadline: 1400,
+    deadline,
     status: "PUBLISHED",
     confirmationRequired: true,
     output,
   };
   const resign = async () => {
-    epoch.signature = await wallets[0]!.signMessage(signingMessage(56, output));
+    epoch.signature = await wallets[0]!.signMessage(
+      signingMessage(chainId, output),
+    );
     const d = {
       version: "a2a-confirmation/1" as const,
-      chainId: 56,
+      chainId,
       epoch: epochId,
       proposalHash: hash({ output, signature: epoch.signature }),
       committeeHash: hash(committee),
       configHash: "config",
-      expiresAt: 1400,
+      expiresAt: deadline,
     };
     epoch.confirmation = {
       ...d,
@@ -195,7 +214,7 @@ export async function stableFixture(epochId = "1") {
           signature: await w.signMessage(confirmationMessage(d)),
         })),
       ),
-      confirmedAt: 1010,
+      confirmedAt: now + 10,
     };
   };
   await resign();

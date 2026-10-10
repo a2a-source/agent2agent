@@ -18,7 +18,7 @@ Investment returns would be shared with participating computing nodes and invest
 
 ## Run v0.1
 
-The repository now includes a TypeScript/SQLite service, encrypted Agent wallets, a Flap V6 launch adapter, revenue splitting and staking contracts, Smart QSP elections and failover, LangChain/LangGraph ReAct research with configurable OpenRouter models and bounded web tools, and signed outputs. Investment execution and profit distribution are not enabled.
+The repository now includes a TypeScript/SQLite service, encrypted Agent wallets, a Flap V6 launch adapter, revenue splitting and staking contracts, Smart QSP elections and failover, LangChain/LangGraph ReAct research with configurable OpenRouter models and bounded web tools, and signed outputs. Configured deployments can automatically consume confirmed QSP allocations, execute ERC20 V2 trades and return persisted wallet accounting to subsequent research. Chain writes and investment execution are disabled by default; profit distribution is not implemented. See [execution behavior and limitations](docs/automatic-investment-execution.md) and [testnet evidence](docs/testnet-qsp-execution.md).
 
 Requires Node.js 22.13+:
 
@@ -201,3 +201,5 @@ Contributions to protocol design, multi-agent collaboration, quantitative resear
 This project is licensed under the [MIT License](LICENSE).
 
 Copyright © 2026 a2a-source and Agent2Agent contributors.
+
+Implementation reference: [automatic QSP wallet execution](docs/automatic-investment-execution.md), [execution accounting and research feedback](docs/execution-feedback.md), and [explicit testnet asset profiles](docs/research-testnet-profile.md). These documents distinguish implemented behavior from the conceptual roadmap above.

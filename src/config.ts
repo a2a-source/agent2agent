@@ -1,13 +1,19 @@
+import { executionConfigSchema } from "./execution-config.js";
 import { investmentRiskPolicySchema } from "./investment-risk.js";
 import { planningConfigSchema } from "./investment-planning.js";
 import { templateSchema } from "./report-templates.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { assetSchema, assertResearchAssets } from "./research-context.js";
+import {
+  assetSchema,
+  assertResearchAssets,
+  testnetProfileSchema,
+} from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
   investmentPlanning: planningConfigSchema.default({}),
+  investmentExecution: executionConfigSchema.default({}),
   investmentRisk: investmentRiskPolicySchema.default({}),
   confirmation: z.object({ timeoutMs: integer }).default({ timeoutMs: 60000 }),
   reportTemplates: z.record(templateSchema),
@@ -94,6 +100,7 @@ const schema = z.object({
   research: z.object({
     enabled: z.boolean().default(true),
     chainId: integer.default(56),
+    testnetProfile: testnetProfileSchema.optional(),
     rpcUrl: z.string().default(""),
     portfolioWallet: z.string().default(""),
     accountingFile: z.string().default(""),
@@ -148,8 +155,21 @@ export function loadConfig(path?: string): Config {
       ...base.investmentPlanning,
       ...override.investmentPlanning,
     },
+    investmentExecution: {
+      ...base.investmentExecution,
+      ...override.investmentExecution,
+    },
     research: { ...base.research, ...override.research },
   });
+  if (
+    c.investmentExecution.enabled &&
+    (!c.investmentPlanning.enabled ||
+      !c.chain.writesEnabled ||
+      !c.investmentExecution.dex)
+  )
+    throw Error(
+      "investment execution requires planning, chain writes and explicit DEX deployment",
+    );
   if (new Set(c.roles.map((r) => r.id)).size !== c.roles.length)
     throw Error("duplicate roles");
   if (
@@ -168,6 +188,10 @@ export function loadConfig(path?: string): Config {
   )
     throw Error("missing report template for configured role");
   if (c.research.enabled)
-    assertResearchAssets(c.research.chainId, c.research.assets);
+    assertResearchAssets(
+      c.research.chainId,
+      c.research.assets,
+      c.research.testnetProfile,
+    );
   return c;
 }

@@ -237,3 +237,54 @@ test("background investment planning is independent of provider health, single-f
   assert.equal(calls, 1);
   db.close();
 });
+
+test("background investment execution is independent of provider health, single-flight and drained on shutdown", async () => {
+  const db = new Store(":memory:");
+  let release!: () => void,
+    calls = 0;
+  const gate = new Promise<void>((r) => (release = r));
+  const runner: any = {
+    agents: { db, list: () => [] },
+    llm: {
+      refreshPrice: async () => {},
+      priceReady: () => false,
+      probeProvider: async () => false,
+    },
+    cancel() {},
+  };
+  const penalties: any = {
+    observeResearch() {},
+    recoverOperational: async () => {},
+  };
+  const planner = {
+    async tick() {
+      calls++;
+      await gate;
+      db.put("test", "execution-drained", true);
+    },
+  };
+  const scheduler = new Scheduler(
+    runner,
+    penalties,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    planner,
+  );
+  await scheduler.tick();
+  await scheduler.tick();
+  assert.equal(calls, 1);
+  let stopped = false;
+  const stopping = scheduler.stop().then(() => (stopped = true));
+  await new Promise((r) => setImmediate(r));
+  assert.equal(stopped, false);
+  release();
+  await stopping;
+  assert.equal(db.get("test", "execution-drained"), true);
+  await scheduler.tick();
+  assert.equal(calls, 1);
+  db.close();
+});

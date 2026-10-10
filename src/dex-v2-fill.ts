@@ -106,8 +106,8 @@ export async function recordV2Fill(
   )
     throw Error("fill quantity mismatch");
   const result = {
-    id: hash(["dex-v2-fill/1", q.chainId, t.hash]),
-    version: "dex-v2-fill/1",
+    id: hash(["dex-v2-fill/2", q.chainId, t.hash, r.blockHash]),
+    version: "dex-v2-fill/2",
     quoteId,
     transactionId,
     chainId: q.chainId,

@@ -18,6 +18,7 @@ import { marketKlinesTool } from "./market-klines.js";
 import { Store } from "./store.js";
 import type { Config } from "./config.js";
 import type { ResearchTool } from "./agent-runtime.js";
+import { buildExecutionFeedbackSummary } from "./execution-feedback.js";
 import {
   contextSchema,
   assertResearchAssets,
@@ -35,6 +36,50 @@ const decimal = z
   .string()
   .regex(/^\d+(\.\d+)?$/)
   .max(64);
+/** Select only completed historical execution rounds on the requested chain. */
+export function collectExecutionFeedbackEvidence(
+  db: Store,
+  chainId: number,
+  at: number,
+) {
+  const completed = z.object({
+    roundId: z.string().min(1).max(160),
+    chainId: z.number().int().positive().safe(),
+    status: z.literal("COMPLETE"),
+    finishedAt: z.number().int().nonnegative().safe(),
+  });
+  const rounds = db
+    .all<unknown>("investment-execution-round")
+    .flatMap((row) => {
+      const parsed = completed.safeParse(row);
+      return parsed.success ? [parsed.data] : [];
+    })
+    .filter((r) => r.chainId === chainId && r.finishedAt <= at)
+    .sort(
+      (a, b) =>
+        b.finishedAt - a.finishedAt || b.roundId.localeCompare(a.roundId),
+    );
+  const latest = rounds[0];
+  if (!latest) return null;
+  const feedback = buildExecutionFeedbackSummary(db, {
+    roundId: latest.roundId,
+    chainId,
+  });
+  if (!feedback.network)
+    throw Error("completed investment round feedback missing");
+  const proof = evidence(
+    "accounting",
+    `execution-feedback://${chainId}/${latest.roundId}`,
+    latest.finishedAt,
+    feedback,
+    at,
+  );
+  db.put("research-evidence", proof.id, {
+    ...proof,
+    data: normalizeEvidence(feedback),
+  });
+  return { feedback, evidence: proof };
+}
 function micros(v: unknown) {
   const s = decimal.parse(v);
   const [a, b = ""] = s.split(".");
@@ -110,7 +155,11 @@ export class ResearchData {
     } | null,
     signal?: AbortSignal,
   ): Promise<ResearchContext> {
-    assertResearchAssets(this.config.chainId, this.config.assets);
+    assertResearchAssets(
+      this.config.chainId,
+      this.config.assets,
+      this.config.testnetProfile,
+    );
     const c = this.config,
       at = Date.now();
     const proofs: ResearchContext["evidence"] = [],
@@ -404,10 +453,23 @@ export class ResearchData {
       "BTCB/ETH are pegged representations with custody/peg risks; WBNB is the native BNB deposit/withdraw wrapper, not a cross-chain bridge asset. Reserves and incidents are not verified by this snapshot. CEX marks are not DEX execution quotes",
     );
     if (signal?.aborted) throw signal.reason;
+    let executionFeedback: ResearchContext["executionFeedback"];
+    try {
+      const result = collectExecutionFeedbackEvidence(this.db, c.chainId, at);
+      if (result) {
+        executionFeedback = result.feedback;
+        proofs.push(result.evidence);
+      }
+    } catch {
+      missing.push(
+        "Completed investment execution feedback unavailable or invalid; accounting performance unknown",
+      );
+    }
     const partial = {
       portfolio,
       markets,
       chainId: c.chainId,
+      ...(c.testnetProfile ? { testnetProfile: c.testnetProfile } : {}),
       universe: c.assets,
       portfolioIdentity: {
         wallet: c.portfolioWallet,
@@ -416,8 +478,10 @@ export class ResearchData {
     };
     return contextSchema.parse({
       version: "research-context/1",
+      ...(executionFeedback ? { executionFeedback } : {}),
       at,
       chainId: c.chainId,
+      ...(c.testnetProfile ? { testnetProfile: c.testnetProfile } : {}),
       universe: c.assets,
       portfolio,
       portfolioIdentity: {
@@ -477,7 +541,7 @@ export function contextTools(
       schema: z.object({}),
       run: async () => ({
         data: Object.fromEntries(
-          ["facts", ...sections].map((s) => [
+          ["facts", "executionFeedback", ...sections].map((s) => [
             s,
             (promptSnapshot(context) as any)[s],
           ]),
@@ -487,9 +551,7 @@ export function contextTools(
       }),
     },
     ...researchTools(),
-    ...(role === "news"
-      ? [assetNewsTool(context.universe.map((a) => a.symbol))]
-      : []),
+    ...(role === "news" ? [assetNewsTool(context.universe)] : []),
     ...(role === "market" ? [marketKlinesTool()] : []),
   ];
 }

@@ -1,10 +1,10 @@
 # Automatic investment reference planning
 
-The service can automatically turn a committee-confirmed, published QSP containing an explicit `stableNetworkAllocation` into independent registered-wallet reference plans. This path performs no LLM calls, signs no transactions and spends no funds. Qualifying Workers do not need individual opt-in.
+The service can automatically turn a committee-confirmed, published QSP containing an explicit `stableNetworkAllocation` into independent registered-wallet reference plans. This path performs no LLM calls, signs no transactions and spends no funds. Qualifying Workers do not need individual opt-in. The separate [automatic execution coordinator](automatic-investment-execution.md) consumes READY plans when enabled.
 
 ## Configuration
 
-`investmentPlanning` in `config/default.json` is disabled by default. Enable it only with an explicitly verified `registry` matching `chain.id` and a configured chain RPC. The registry format and confirmed-block collection rules are documented in [stable wallet plans](stable-wallet-plans.md). No asset addresses or price feeds are inferred. Current signed stable-allocation evidence supports the recognized BSC mainnet asset universe; a testnet registry alone does not make a mainnet QSP valid on testnet.
+`investmentPlanning` in `config/default.json` is disabled by default. Enable it only with an explicitly verified `registry` matching `chain.id` and a configured chain RPC. The registry format and confirmed-block collection rules are documented in [stable wallet plans](stable-wallet-plans.md). No asset addresses or price feeds are inferred. Signed stable-allocation evidence supports the recognized BSC mainnet asset universe and explicitly committed [BSC97 test profiles](research-testnet-profile.md). A testnet registry alone does not make a mainnet QSP valid on testnet.
 
 Defaults are three attempts, 30-second initial retry delay, 120-second lease, and at most four claimed jobs per background tick. Attempts are capped at ten; retry and lease durations at one day; jobs per tick at 32. Failed attempts retry exponentially, bounded by the package's evidence deadline. Changing the registry, risk policy or planning options fails outstanding jobs with `PLANNING_CONFIG_CHANGED`; subsequent eligible epochs use the new configuration.
 
@@ -12,7 +12,7 @@ The Scheduler starts planning after maintenance, independently of LLM provider h
 
 ## Durable lifecycle
 
-Each eligible published epoch and registered Agent gets one durable job. Before RPC reads, each attempt checks confirmed launch, wallet identity, jail/exit/auto-stake state, fresh chain observations, the 0.3 BNB bond, available compute budget, and local pending transactions/sender locks. Ineligible or busy wallets retry within the same bounded policy. Exhausted or expired jobs are terminal; a subsequent epoch can create new jobs.
+The first eligible discovery freezes the registered Agent roster for that epoch; later-joining Agents enter subsequent epochs. Each roster member gets one durable job. Before RPC reads, each attempt checks confirmed launch, wallet identity, jail/exit/auto-stake state, fresh chain observations, the 0.3 BNB bond, available compute budget, and local pending transactions/sender locks. Ineligible or busy wallets retry within the same bounded policy. Exhausted or expired jobs are terminal; a subsequent epoch can create new jobs.
 
 The collector records balances and oracle observations at a confirmed block. The consumer revalidates QSP signatures, deadlines, wallet qualification, asset identities and pending local transactions before atomically storing the reference plan and job completion. See [confirmed stable QSP](confirmed-stable-qsp.md) for verification rules.
 

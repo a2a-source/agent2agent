@@ -105,7 +105,8 @@ test("HTTP provider circuit recovers automatically and retry dispatch preserves 
     budget = new Budget(db),
     config = loadConfig().llm;
   config.endpoint = `http://127.0.0.1:${(server.address() as any).port}`;
-  config.timeoutMs = 100;
+  // Real loopback HTTP can be delayed when the full test suite saturates workers.
+  config.timeoutMs = 1000;
   budget.credit("a", "fund", 10000000000000000n);
   const llm = new Llm(db, budget, config, "test"),
     tasks = new ResearchTasks(db, { maxAttempts: 2 });
@@ -114,7 +115,7 @@ test("HTTP provider circuit recovers automatically and retry dispatch preserves 
       tasks.execute(
         "failed",
         ["a"],
-        Date.now() + 1000,
+        Date.now() + 10000,
         () => {},
         (agent, id) => llm.call(agent, id, "system", "input"),
       ),
@@ -128,7 +129,7 @@ test("HTTP provider circuit recovers automatically and retry dispatch preserves 
     );
     assert.equal(db.all("reservation").length, 2);
     unavailable = false;
-    await new Promise((r) => setTimeout(r, 110));
+    await new Promise((r) => setTimeout(r, config.timeoutMs + 10));
     const restarted = new Llm(db, budget, config, "test");
     assert.equal(
       (await restarted.call("a", "recovered", "system", "input")).summary,

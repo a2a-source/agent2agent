@@ -10,6 +10,7 @@ import { ResearchTasks, balancedAssignments } from "./tasks.js";
 import type { Observation, ResearchTool } from "./agent-runtime.js";
 import { ResearchData, contextTools } from "./research-data.js";
 import {
+  assertResearchAssets,
   contextSchema,
   evidence,
   normalizeEvidence,
@@ -109,6 +110,11 @@ export async function buildResearchPackage(p: {
   }
   const context = contextSchema.parse(saved.context),
     contextHash = saved.hash;
+  assertResearchAssets(
+    context.chainId,
+    context.universe,
+    context.testnetProfile,
+  );
   const promptContext = promptSnapshot(context);
   const fresh = () => {
     fence();
@@ -293,7 +299,7 @@ export async function buildResearchPackage(p: {
         id,
         config.masterPrompt,
         JSON.stringify({
-          task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
+          task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Include networkAllocation and stableNetworkAllocation as independent fields, using null when unsupported. Empty signals are valid; do not force trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted.',
           context: promptContext,
           reportTemplate: config.reportTemplates.master,
           networkAllocationInstructions: {
@@ -303,8 +309,10 @@ export async function buildResearchPackage(p: {
           },
           stableNetworkAllocationInstructions: {
             scope: "NETWORK_MODEL_PORTFOLIO",
+            configuredAssets: context.universe,
+            testnetProfile: context.testnetProfile ?? null,
             instruction:
-              "For stable-reserve independent-wallet research, return stableNetworkAllocation=null when evidence is insufficient or BTCB/ETH/WBNB are not all configured. Otherwise use {version:'stable-network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',reserve:'ALLOWLISTED_STABLECOINS',nativeBnb:'INCLUDED_IN_BNB_TARGET',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Explicitly cover all three configured assets. Native BNB and WBNB share the BNB target; residual is allowlisted stablecoins, not native BNB. Each underlying target is at most min(2000,context.policy.maxAssetBps); total is at most min(6000,context.policy.maxTotalBps). Use fresh frozen role-cited market evidence for every asset and matching frozen DEX evidence for positive weights. Do not copy wallet-specific holdings corrections, reinterpret networkAllocation, assume a stablecoin quote/peg, or force targets. This is independently evidenced shared allocation, not execution authority.",
+              "For stable-reserve independent-wallet research, return stableNetworkAllocation=null when evidence is insufficient or the configured universe does not cover all three underlying reference markets BTCUSDT, ETHUSDT and BNBUSDT. Use the exact addresses and symbols in configuredAssets, whose registry/profile has been validated. BTCB/ETH/WBNB are mainnet examples, not required literal symbols for a signed test profile. Test-profile market trends are underlying reference evidence, not proof of token backing or executable prices. Otherwise use {version:'stable-network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',reserve:'ALLOWLISTED_STABLECOINS',nativeBnb:'INCLUDED_IN_BNB_TARGET',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Explicitly cover all three configured assets. Native BNB and the configured BNBUSDT token share the BNB target; residual is allowlisted stablecoins, not native BNB. Each underlying target is at most min(2000,context.policy.maxAssetBps); total is at most min(6000,context.policy.maxTotalBps). Use fresh frozen role-cited market evidence for every asset and matching frozen DEX evidence for positive weights. Do not copy wallet-specific holdings corrections, reinterpret networkAllocation, assume a stablecoin quote/peg, or force targets. This is independently evidenced shared allocation, not execution authority.",
           },
           signalEvidenceRequirements: promptContext.markets.map((m) => ({
             asset: m.asset,

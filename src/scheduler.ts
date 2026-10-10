@@ -17,12 +17,14 @@ export class Scheduler {
   private resolveIdle?: () => void;
   private runTask?: Promise<void>;
   private planningTask?: Promise<void>;
+  private executionTask?: Promise<void>;
   async stop() {
     this.stopped = true;
     this.runner.cancel();
     await this.idle;
     await this.runTask;
     await this.planningTask;
+    await this.executionTask;
   }
   constructor(
     readonly runner: Runner,
@@ -33,6 +35,7 @@ export class Scheduler {
     readonly settlement?: TaxSettlement,
     readonly accounting?: { tick(): void | Promise<void> },
     readonly planning?: { tick(): Promise<void> },
+    readonly execution?: { tick(): Promise<void> },
   ) {}
   async tick() {
     if (this.busy || this.stopped) return;
@@ -131,6 +134,24 @@ export class Scheduler {
           })
           .finally(() => {
             this.planningTask = undefined;
+          });
+      }
+      if (this.execution && !this.executionTask) {
+        this.executionTask = Promise.resolve()
+          .then(() => this.execution!.tick())
+          .then(() => {
+            db.put("service-error", "investment-execution", {
+              status: "HEALTHY",
+            });
+          })
+          .catch(() => {
+            db.put("service-error", "investment-execution", {
+              at: Date.now(),
+              reason: "EXECUTION_RETRY_PENDING",
+            });
+          })
+          .finally(() => {
+            this.executionTask = undefined;
           });
       }
       const confirming = db

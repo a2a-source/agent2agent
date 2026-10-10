@@ -22,7 +22,11 @@ export function validateStableNetworkAllocation(
   maxAgeMs: number,
 ) {
   const a = stableNetworkAllocationSchema.parse(raw);
-  assertResearchAssets(context.chainId, context.universe);
+  assertResearchAssets(
+    context.chainId,
+    context.universe,
+    context.testnetProfile,
+  );
   if (
     context.universe.length !== 3 ||
     new Set(context.universe.map((x) => x.marketSymbol)).size !== 3

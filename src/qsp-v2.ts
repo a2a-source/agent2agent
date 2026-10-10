@@ -335,7 +335,11 @@ export const qspV2Schema = z
           refs(q.reports.flatMap((r) => r.additionalEvidence)),
         );
       }
-      assertResearchAssets(q.context.chainId, q.context.universe);
+      assertResearchAssets(
+        q.context.chainId,
+        q.context.universe,
+        q.context.testnetProfile,
+      );
       const validated = validateResearchDecision(
         { ...q.masterSummary, signals: q.signals, risks: q.risks },
         q.context,

@@ -150,15 +150,23 @@ export class InvestmentPlanning {
         deadline = 0;
       }
       const epochKey = hash([this.consumer.chainId, epoch.id]);
+      const priorEpoch = this.db.get<{ roster?: Agent[] }>(
+        "investment-planning-epoch",
+        epochKey,
+      );
+      const roster =
+        priorEpoch?.roster ??
+        (deadline ? this.db.all<Agent>("agent") : undefined);
       this.db.put("investment-planning-epoch", epochKey, {
         epoch: epoch.id,
         chainId: this.consumer.chainId,
         status: deadline ? "ELIGIBLE" : "SKIPPED",
         reason,
+        roster,
       });
       if (!deadline) continue;
       this.db.transaction(() => {
-        for (const agent of this.db.all<Agent>("agent")) {
+        for (const agent of roster ?? []) {
           const id = hash([
             "investment-planning/1",
             this.consumer.chainId,

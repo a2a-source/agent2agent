@@ -18,7 +18,7 @@ Agent2Agent（A2A）是一个拟议的 Web3 协作网络：通过选举产生 **
 
 ## 首版运行
 
-已提供 TypeScript 与 SQLite 服务、Agent 独立加密钱包、Flap V6 发币适配、税费分账与自动质押、Smart QSP 选举及轮值、故障接替、配置化 LLM 协作和签名报文。真实投资执行与收益分红尚未启用。
+已提供 TypeScript 与 SQLite 服务、Agent 独立加密钱包、Flap V6 发币适配、税费分账与自动质押、Smart QSP 选举及轮值、故障接替、配置化 LLM 协作和签名报文。完成部署配置后，可自动消费已确认 QSP 的目标配置、执行 ERC20 V2 交易，并将持久化的钱包核算结果反馈给后续调研。链上写入与投资执行默认关闭；收益分红尚未实现。参见[自动执行机制及边界](docs/automatic-investment-execution.md)与[测试网验证记录](docs/testnet-qsp-execution.md)。
 
 需要 Node.js 22.13+：
 

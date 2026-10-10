@@ -2,6 +2,7 @@ import { z } from "zod";
 import { researchFacts } from "./research-facts.js";
 import { isAddress, formatUnits } from "ethers";
 import { hash } from "./protocol.js";
+import { executionFeedbackSummarySchema } from "./execution-feedback.js";
 export const uint = z
   .string()
   .regex(/^(0|[1-9][0-9]*)$/)
@@ -39,7 +40,47 @@ const REGISTRY: Record<
     decimals: 18,
   },
 };
-export function assertResearchAssets(chainId: number, assets: ResearchAsset[]) {
+export const testnetProfileSchema = z
+  .object({
+    kind: z.literal("bsc97-test-assets/1"),
+    registryHash: z.string().regex(/^[0-9a-f]{64}$/),
+  })
+  .strict();
+export type ResearchTestnetProfile = z.infer<typeof testnetProfileSchema>;
+/** A signed test profile binds the complete mapping, independent of address case/order. */
+export function researchAssetRegistryHash(assets: ResearchAsset[]) {
+  return hash(
+    assets
+      .map((a) => ({ ...a, address: a.address.toLowerCase() }))
+      .sort((a, b) => a.marketSymbol.localeCompare(b.marketSymbol)),
+  );
+}
+export function assertResearchAssets(
+  chainId: number,
+  assets: ResearchAsset[],
+  testnetProfile?: ResearchTestnetProfile,
+) {
+  if (chainId === 97) {
+    const profile = testnetProfileSchema.safeParse(testnetProfile);
+    const parsed = z.array(assetSchema).length(3).safeParse(assets);
+    if (
+      !profile.success ||
+      !parsed.success ||
+      new Set(assets.map((a) => a.address.toLowerCase())).size !== 3 ||
+      new Set(assets.map((a) => a.symbol)).size !== 3 ||
+      assets
+        .map((a) => a.marketSymbol)
+        .sort()
+        .join(",") !== "BNBUSDT,BTCUSDT,ETHUSDT" ||
+      profile.data.registryHash !== researchAssetRegistryHash(assets)
+    )
+      throw Error(
+        "research asset registry requires a complete matching BSC97 test profile",
+      );
+    return;
+  }
+  if (testnetProfile !== undefined)
+    throw Error("research asset registry test profile is restricted to BSC97");
   if (chainId !== 56)
     throw Error("research asset registry supports BSC mainnet only");
   for (const a of assets) {
@@ -99,6 +140,8 @@ export const contextSchema = z
     at: z.number().int(),
     chainId: z.number().int().positive(),
     universe: z.array(assetSchema).min(1).max(24),
+    testnetProfile: testnetProfileSchema.optional(),
+    executionFeedback: executionFeedbackSummarySchema.optional(),
     portfolio: portfolioSchema,
     portfolioIdentity: z.object({
       wallet: z.string(),
@@ -158,7 +201,14 @@ export const contextSchema = z
       maxSlippageBps: z.number().int().min(0).max(10000),
     }),
   })
-  .strict();
+  .strict()
+  .superRefine((c, ctx) => {
+    if (c.executionFeedback && c.executionFeedback.chainId !== c.chainId)
+      ctx.addIssue({
+        code: "custom",
+        message: "execution feedback chain mismatch",
+      });
+  });
 export type ResearchContext = z.infer<typeof contextSchema>;
 function ratio(n: bigint, d: bigint): number | null {
   if (d <= 0n) return null;
@@ -269,6 +319,7 @@ export function compareContext(previous: any, current: any) {
           wallet: x.portfolioIdentity?.wallet?.toLowerCase() ?? null,
           scope: x.portfolioIdentity?.scope ?? null,
           universe: x.universe ?? null,
+          testnetProfile: x.testnetProfile ?? null,
         }
       : null;
   const comparable =
@@ -371,8 +422,10 @@ export function promptSnapshot(c: ResearchContext, role?: string) {
     at: c.at,
     atISO: new Date(c.at).toISOString(),
     chainId: c.chainId,
+    ...(c.testnetProfile ? { testnetProfile: c.testnetProfile } : {}),
     units:
-      "All price/value/cost/PnL fields here are USDT reference marks. Percent fields are percentages, not basis points. DEX liquidity is whole USD. Unknown is null, never zero.",
+      "Portfolio and market price/value/cost/PnL fields are USDT reference marks. executionFeedback retains exact micro-USD integers and is independent of those reference marks; NAV delta is not profit and UNKNOWN is not zero. Percent fields are percentages, not basis points. DEX liquidity is whole USD.",
+    ...(c.executionFeedback ? { executionFeedback: c.executionFeedback } : {}),
     portfolio: {
       status: c.portfolio.status,
       quoteCurrency: c.portfolio.quoteCurrency,

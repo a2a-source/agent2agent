@@ -1,3 +1,6 @@
+import { InvestmentExecution } from "./investment-execution.js";
+import { V2Dex } from "./dex-v2.js";
+import type { EncryptedWallet } from "./wallet.js";
 import { RoundPerformanceCapture } from "./performance-capture.js";
 import { InvestmentPlanning } from "./investment-planning.js";
 import {
@@ -76,6 +79,8 @@ const llm = new Llm(
     config.network.failureLimit,
     config.network.jailMs,
   );
+let execution: InvestmentExecution | undefined;
+let journal: Journal | undefined;
 let watcher: Watcher | undefined,
   launcher: FlapLauncher | undefined,
   settlement: TaxSettlement | undefined;
@@ -83,12 +88,16 @@ if (config.chain.rpcUrl) {
   const provider = new JsonRpcProvider(config.chain.rpcUrl, undefined, {
     cacheTimeout: -1,
   });
-  const journal = new Journal(
+  journal = new Journal(
     db,
     provider,
     config.chain.id,
     config.chain.writesEnabled,
     { ...config.recovery, confirmations: config.chain.confirmations },
+    (planId) => {
+      if (!execution) throw Error("execution service unavailable");
+      execution.assertCanSign(planId);
+    },
   );
   if (config.chain.stakeAddress)
     watcher = new Watcher(
@@ -168,6 +177,58 @@ const planning = config.investmentPlanning.enabled
       },
     )
   : undefined;
+// A disabled deployment still reconciles its existing intents using persisted public settings.
+const pendingExecution = db
+  .all<{ configHash: string; chainId: number; status: string }>(
+    "investment-execution-job",
+  )
+  .find(
+    (j) =>
+      j.chainId === config.chain.id && !["DONE", "ABORTED"].includes(j.status),
+  );
+const recoveryDeployment =
+  pendingExecution &&
+  db.get<any>("investment-execution-config", pendingExecution.configHash);
+const executionDeployment =
+  config.investmentExecution.enabled && planning
+    ? {
+        registry: planning.collector.registry,
+        dex: config.investmentExecution.dex,
+        options: config.investmentExecution,
+        gasReserveWei: config.chain.gasReserveWei,
+      }
+    : recoveryDeployment && {
+        ...recoveryDeployment,
+        options: { ...recoveryDeployment.options, enabled: false },
+      };
+if (executionDeployment && journal) {
+  execution = new InvestmentExecution(
+    db,
+    planning?.consumer ??
+      new ConfirmedStablePlans(
+        db,
+        budget,
+        config.chain.id,
+        config.network.stateMaxAgeMs,
+        minimumCompute,
+        config.investmentRisk,
+      ),
+    new PortfolioCollector(
+      db,
+      new EthersPortfolioReader(priceProvider),
+      executionDeployment.registry,
+    ),
+    new V2Dex(db, priceProvider, executionDeployment.dex),
+    journal,
+    (agentId) => {
+      const record = db.get<EncryptedWallet>("wallet", agentId);
+      if (!record) throw Error("Agent wallet unavailable");
+      return vault.withWallet(record, (wallet) => wallet);
+    },
+    executionDeployment.options,
+    executionDeployment.gasReserveWei,
+  );
+}
 const scheduler = new Scheduler(
     runner,
     penalties,
@@ -177,6 +238,7 @@ const scheduler = new Scheduler(
     settlement,
     performance,
     planning,
+    execution,
   ),
   api = createApi({
     agents,

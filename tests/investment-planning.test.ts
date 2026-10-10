@@ -338,3 +338,53 @@ test("a persisted blocked outcome is terminal and keeps its plan association", a
     x.db.close();
   }
 });
+
+test("first valid epoch discovery freezes the wallet roster across late registration and restart", async () => {
+  const x = await fixture();
+  try {
+    const epoch = x.db.get<any>("epoch", "1");
+    x.db.put("epoch", "1", { ...epoch, confirmation: undefined });
+    await x.create().tick();
+    assert.equal(x.db.all("investment-planning-job").length, 0);
+    const add = (id: string, digit: string) => {
+      x.db.put("agent", id, {
+        ...x.db.get<any>("agent", "investor"),
+        id,
+        wallet: "0x" + digit.repeat(40),
+      });
+      x.db.put("chain-state", id, x.db.get("chain-state", "investor"));
+      x.budget.credit(id, id + "-fund", 100n);
+    };
+    add("before-valid", "5");
+    x.db.put("epoch", "1", epoch);
+    await x.create().tick();
+    assert.equal(
+      x.db.all<any>("investment-planning-job").filter((j) => j.epoch === "1")
+        .length,
+      2,
+    );
+    add("after-valid", "6");
+    await x.create().tick();
+    assert.deepEqual(
+      x.db
+        .all<any>("investment-planning-job")
+        .filter((j) => j.epoch === "1")
+        .map((j) => j.agent)
+        .sort(),
+      ["before-valid", "investor"],
+    );
+    const next = await stableFixture("2");
+    x.db.put("epoch", "2", next.epoch);
+    await x.create().tick();
+    assert.deepEqual(
+      x.db
+        .all<any>("investment-planning-job")
+        .filter((j) => j.epoch === "2")
+        .map((j) => j.agent)
+        .sort(),
+      ["after-valid", "before-valid", "investor"],
+    );
+  } finally {
+    x.db.close();
+  }
+});

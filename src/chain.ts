@@ -44,6 +44,8 @@ export interface TxRecoveryPolicy {
   maxLogicalAttempts?: number;
   cooldownMs?: number;
   confirmations?: number;
+  recoveryBatchSize?: number;
+  terminalAuditBatchSize?: number;
 }
 /** Persist signed bytes before broadcast. A transport timeout retries exactly those bytes. */
 export class Journal {
@@ -94,7 +96,32 @@ export class Journal {
     readonly chainId: number,
     readonly enabled: boolean,
     readonly policy: TxRecoveryPolicy = {},
-  ) {}
+    readonly beforeSign?: (planId: string) => void,
+  ) {
+    if (
+      !Number.isSafeInteger(policy.recoveryBatchSize ?? 16) ||
+      (policy.recoveryBatchSize ?? 16) < 2 ||
+      !Number.isSafeInteger(policy.terminalAuditBatchSize ?? 4) ||
+      (policy.terminalAuditBatchSize ?? 4) < 1
+    )
+      throw Error("invalid recovery batch limits");
+  }
+  private checkSigning(...args: Parameters<typeof checkReservedSigning>) {
+    const binding = checkReservedSigning(...args);
+    if (binding) {
+      const marker = this.db.get<{ planId: string }>(
+        "investment-execution-reservation",
+        binding.reservationId,
+      );
+      if (marker) {
+        if (!this.beforeSign) throw Error("execution source hook required");
+        if (typeof marker.planId !== "string" || !marker.planId)
+          throw Error("invalid execution source marker");
+        this.beforeSign(marker.planId);
+      }
+    }
+    return binding;
+  }
   async send(
     id: string,
     sender: string,
@@ -163,7 +190,7 @@ export class Journal {
           };
           const tx = Transaction.from(row.raw);
           const retryRequest = { to: tx.to, data: tx.data, value: tx.value };
-          checkReservedSigning(
+          this.checkSigning(
             this.db,
             this.chainId,
             id,
@@ -193,7 +220,7 @@ export class Journal {
           row.block = undefined;
           row.blockHash = undefined;
           this.db.transaction(() => {
-            checkReservedSigning(
+            this.checkSigning(
               this.db,
               this.chainId,
               id,
@@ -243,7 +270,7 @@ export class Journal {
         )
           throw Error("transaction exceeds gas price budget");
         const reservedFee = gasLimit * fees.gasPrice;
-        const binding = checkReservedSigning(
+        const binding = this.checkSigning(
           this.db,
           this.chainId,
           id,
@@ -295,7 +322,7 @@ export class Journal {
               )
           )
             throw Error("sender has pending transaction");
-          checkReservedSigning(
+          this.checkSigning(
             this.db,
             this.chainId,
             id,
@@ -486,7 +513,7 @@ export class Journal {
         (row.maxFeeWei === undefined ||
           fee * tx.gasLimit <= BigInt(row.maxFeeWei))
       ) {
-        checkReservedSigning(
+        this.checkSigning(
           this.db,
           this.chainId,
           row.id,
@@ -520,7 +547,7 @@ export class Journal {
     m.attempts++;
     this.db.transaction(() => {
       if (replacementFee !== undefined)
-        checkReservedSigning(
+        this.checkSigning(
           this.db,
           this.chainId,
           row.id,
@@ -565,21 +592,67 @@ export class Journal {
     else this.save(row);
     return true;
   }
-  async confirmed(id: string, confirmations: number): Promise<boolean> {
+  async terminal(
+    id: string,
+    confirmations: number,
+  ): Promise<"CONFIRMED" | "REVERTED" | undefined> {
     const old = this.db.get<TxRecord>("transaction", id);
-    if (!old) return false;
+    if (!old) return undefined;
     const owner = this.acquire(old.sender);
     try {
       const row = this.db.get<TxRecord>("transaction", id)!;
-      if (!(await this.reconcile(row, confirmations))) return false;
-      if (row.state === "REVERTED") throw Error("transaction reverted");
-      return true;
+      if (!(await this.reconcile(row, confirmations))) return undefined;
+      return row.state === "REVERTED" ? "REVERTED" : "CONFIRMED";
     } finally {
       this.release(old.sender, owner);
     }
   }
+  async confirmed(id: string, confirmations: number): Promise<boolean> {
+    const state = await this.terminal(id, confirmations);
+    if (state === "REVERTED") throw Error("transaction reverted");
+    return state === "CONFIRMED";
+  }
   async recover(confirmations: number) {
-    for (const old of this.db.all<TxRecord>("transaction")) {
+    // Commit selection before RPC so concurrent callers and restarted processes
+    // continue the rotation. Failed/locked rows return automatically on its next lap.
+    const selected = this.db.transaction(() => {
+      const key = String(this.chainId);
+      const cursor =
+        this.db.get<{ ready?: string; terminal?: string }>(
+          "transaction-recovery-cursor",
+          key,
+        ) ?? {};
+      const rows = this.db.all<TxRecord>("transaction");
+      const ready = rows.filter((t) => t.state === "READY");
+      const terminal = rows.filter((t) => t.state !== "READY");
+      const batchSize = this.policy.recoveryBatchSize ?? 16;
+      const auditSize = Math.min(
+        terminal.length,
+        this.policy.terminalAuditBatchSize ?? 4,
+        ready.length ? batchSize - 1 : batchSize,
+      );
+      const rotate = (
+        group: TxRecord[],
+        after: string | undefined,
+        count: number,
+      ) => {
+        const start =
+          after === undefined ? 0 : group.findIndex((t) => t.id > after);
+        const offset = start < 0 ? 0 : start;
+        return [...group.slice(offset), ...group.slice(0, offset)].slice(
+          0,
+          count,
+        );
+      };
+      const pendingBatch = rotate(ready, cursor.ready, batchSize - auditSize);
+      const auditBatch = rotate(terminal, cursor.terminal, auditSize);
+      this.db.put("transaction-recovery-cursor", key, {
+        ready: pendingBatch.at(-1)?.id ?? cursor.ready,
+        terminal: auditBatch.at(-1)?.id ?? cursor.terminal,
+      });
+      return [...pendingBatch, ...auditBatch];
+    });
+    for (const old of selected) {
       let owner: string;
       try {
         owner = this.acquire(old.sender);
