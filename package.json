@@ -18,7 +18,8 @@
     "metadata:upload": "tsx scripts/upload.ts",
     "format:check": "prettier --check \"src/**/*.ts\" \"scripts/**/*.ts\" \"tests/**/*.ts\" config/default.json package.json tsconfig.json",
     "market:klines": "tsx scripts/market-klines.ts",
-    "wallet:restore": "tsx scripts/wallet-restore.ts"
+    "wallet:restore": "tsx scripts/wallet-restore.ts",
+    "investment:preview": "tsx scripts/investment-preview.ts"
   },
   "dependencies": {
     "@langchain/core": "^1.2.16",

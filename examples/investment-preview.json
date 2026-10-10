@@ -1,0 +1,17 @@
+{
+  "strategy": {
+    "version": "allocation-preview/1", "id": "simulated-20-percent-token-target", "chainId": 56,
+    "createdAt": 1000, "validUntil": 2000,
+    "targets": [{ "asset": "0x0000000000000000000000000000000000000001", "weightBps": 2000 }]
+  },
+  "policy": {
+    "allowedAssets": ["0x0000000000000000000000000000000000000001"],
+    "maxAssetBps": 3000, "maxTotalBps": 8000, "maxTurnoverBps": 10000, "maxSnapshotAgeMs": 500
+  },
+  "snapshot": {
+    "agent": "simulation-agent", "wallet": "0x0000000000000000000000000000000000000002", "chainId": 56,
+    "observedAt": 1000, "nativeBalanceWei": "10000000000000000000", "nativePriceMicros": "100000000",
+    "gasReserveWei": "100000000000000000", "pendingNativeWei": "0",
+    "positions": [{ "asset": "0x0000000000000000000000000000000000000001", "decimals": 18, "balance": "0", "pending": "0", "priceMicros": "100000000" }]
+  }
+}
