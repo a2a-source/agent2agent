@@ -1,4 +1,5 @@
 import { Confirmations, ConfirmationPending } from "./confirmation.js";
+import { terminalTiming } from "./cadence.js";
 import { buildResearchPackage } from "./research-round.js";
 import { verifiedDataAt, evidenceMissing } from "./provenance.js";
 import {
@@ -423,12 +424,55 @@ export class Runner {
         clearTimeout(timer),
       );
     } catch (e) {
-      if (!new Confirmations(this.agents.db).proposal(epoch.id))
-        this.epochs.incident(
-          `${runId}:failure`,
-          epoch.master,
-          classifyResearchFailure(e),
-        );
+      this.agents.db.transaction(() => {
+        if (new Confirmations(this.agents.db).proposal(epoch.id)) return;
+        const failure = classifyResearchFailure(e);
+        // Persist only known internal codes. Provider errors can contain secrets,
+        // request bodies or URLs, so arbitrary messages/stacks are never stored.
+        const codes: Record<string, string> = {
+          "configuration changed during epoch": "RUN_CONFIGURATION_CHANGED",
+          "research context data expired": "RESEARCH_CONTEXT_EXPIRED",
+          "epoch configuration mismatch": "EPOCH_CONFIGURATION_MISMATCH",
+          "insufficient healthy committee members": "COMMITTEE_UNAVAILABLE",
+          "research context conflict": "RESEARCH_CONTEXT_CONFLICT",
+          "research attempt context conflict":
+            "RESEARCH_ATTEMPT_CONTEXT_CONFLICT",
+          "stale epoch": "STALE_EPOCH",
+          "stale research generation or deadline expired":
+            "STALE_RESEARCH_GENERATION",
+          "epoch deadline expired": "EPOCH_DEADLINE_EXPIRED",
+        };
+        const code =
+          e instanceof Error && Object.hasOwn(codes, e.message)
+            ? codes[e.message]!
+            : "UNCLASSIFIED";
+        const live = this.epochs.get(epoch.id),
+          at = Date.now();
+        const terminal =
+          live.status === "RUNNING" &&
+          live.view === epoch.view &&
+          (code === "RUN_CONFIGURATION_CHANGED" ||
+            code === "RESEARCH_CONTEXT_EXPIRED");
+        this.agents.db.put("research-failure", runId, {
+          id: runId,
+          epoch: epoch.id,
+          view: epoch.view,
+          failure,
+          code,
+          terminal,
+          at,
+        });
+        this.epochs.incident(`${runId}:failure`, epoch.master, failure, at);
+        // Neither a different Master nor another attempt can repair a frozen
+        // configuration/context. Preserve the evidence and start a new round
+        // through the normal end-relative cadence instead of burning views.
+        if (terminal)
+          this.agents.db.put("epoch", epoch.id, {
+            ...live,
+            status: "FAILED",
+            ...terminalTiming(live, at),
+          });
+      });
       throw e;
     } finally {
       clearTimeout(timer);

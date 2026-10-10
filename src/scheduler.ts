@@ -239,7 +239,9 @@ export class Scheduler {
             at: Date.now(),
             reason: db.get("confirmation-proposal", e!.id)
               ? "CONFIRMATION_RETRY_PENDING"
-              : "ROUND_FAILED_WAITING_FOR_TAKEOVER",
+              : db.get<Epoch>("epoch", e!.id)?.status === "FAILED"
+                ? "ROUND_TERMINATED_WAITING_FOR_CADENCE"
+                : "ROUND_FAILED_WAITING_FOR_TAKEOVER",
           });
         })
         .finally(async () => {

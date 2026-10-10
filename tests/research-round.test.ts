@@ -366,15 +366,35 @@ for (const testnet of [false, true]) {
           });
           await assert.rejects(runner.run(epoch), /simulated crash/);
           assert.equal(requests, 11);
+          // Expiry is terminal; test that future branch on a copy rather than
+          // rewinding the clock and resuming an already expired real round.
+          const expiredDb = new Store(":memory:");
+          for (const row of db.sql
+            .prepare("SELECT kind,id,data FROM records")
+            .all())
+            expiredDb.put(
+              String(row.kind),
+              String(row.id),
+              JSON.parse(String(row.data)),
+            );
+          const expiredRunner = new Runner(
+            new Agents(expiredDb, agents.vault),
+            new Budget(expiredDb),
+            new Epochs(expiredDb),
+            llm,
+            config,
+          );
           t.mock.timers.enable({
             apis: ["Date"],
             now: Date.now() + config.research.maxAgeMs + 1,
           });
           try {
-            await assert.rejects(runner.run(epoch), /data expired/);
+            await assert.rejects(expiredRunner.run(epoch), /data expired/);
+            assert.equal(expiredRunner.epochs.get(epoch.id).status, "FAILED");
             assert.equal(requests, 11);
           } finally {
             t.mock.timers.reset();
+            expiredDb.close();
           }
           await new Promise((r) => setTimeout(r, 5));
         }
