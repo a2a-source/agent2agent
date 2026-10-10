@@ -25,7 +25,7 @@
     "termSlots": 7,
     "committeeSize": 7,
     "timeoutMs": 600000,
-    "epochMs": 900000,
+    "epochMs": 300000,
     "pollMs": 15000,
     "stateMaxAgeMs": 120000,
     "failureLimit": 3,

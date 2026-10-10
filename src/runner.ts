@@ -16,7 +16,7 @@ import {
 } from "./tasks.js";
 import { Agents } from "./agents.js";
 import { Budget } from "./budget.js";
-import { Epochs, type Epoch } from "./epochs.js";
+import { Epochs, sameResearchNetworkConfig, type Epoch } from "./epochs.js";
 import { Llm } from "./llm.js";
 import { hash, type Candidate } from "./protocol.js";
 import {
@@ -153,7 +153,13 @@ export class Runner {
         clearTimeout(timer);
         return await this.confirm(epoch, controller);
       }
-      if (current.configHash !== hash(this.config.network)) {
+      if (
+        current.configHash !== hash(this.config.network) &&
+        !(
+          current.configHash === hash(current.config) &&
+          sameResearchNetworkConfig(current.config, this.config.network)
+        )
+      ) {
         // EpochConfig is the complete network configuration at runtime, including role-independent timing.
         if (
           current.configHash !==

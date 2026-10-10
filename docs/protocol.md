@@ -14,11 +14,13 @@ Each dispatched LLM completion request costs USD0.01 (10,000 micro-USD), indepen
 
 ## Committee selection and rotation
 
-The algorithm filters qualified workers, orders them by effective bonded stake, uses a domain-separated SHA-256 score for equal-stake ordering, and caps the active pool at 45. The first 21 form the main candidate pool. Committee size defaults to 7, with a minimum of 3 active members to start.
+New terms use `fair-terms/1`. Qualification still requires a 0.3 BNB bonded guarantee, fresh chain state and sufficient compute funding. Additional stake does not increase selection weight. All qualified candidates are ranked by their number of previously selected terms, then by a domain-separated deterministic hash of the term seed and Agent ID. The committee contains up to `network.committeeSize` members (default 7, allowed 3–45); 45 limits committee size, not the eligible candidate pool.
 
-When there are more candidates than seats, the main pool fills all but one seat where possible. The remaining seats are selected from the unselected main candidates and backup candidates. Hash ordering is deterministic and reproducible; it is not an unpredictable or manipulation-proof randomness beacon. A party creating multiple funded identities may influence selection.
+An opportunity is counted once when a term's committee is frozen, regardless of whether its rounds later succeed. Restart, takeover and repeated opens of the same term do not increment it again. Existing term snapshots contribute to the count; an offline or quarantined Agent retains its history when it returns. New identities begin at zero. For a fixed eligible set starting with equal counts and a fixed committee size, the maximum and minimum selection counts differ by at most one. This is fairness of committee opportunities, not guaranteed equal Master assignments, work volume, rewards or returns. New identities and changing eligibility can affect waiting times; the design does not provide Sybil resistance or an unpredictable randomness beacon.
 
-Selected members are ordered by wallet address. A committee remains fixed for a default seven-slot term. Within that term the leader is `(slotWithinTerm + view) mod committeeSize`; `view` starts at zero and increments on takeover. No candidate appears twice. Snapshots and configuration hashes are stored with the epoch.
+Selected members are ordered by wallet address. A committee remains fixed for a default seven-slot term. New fair terms rotate Master using `(absoluteSlot + view) mod committeeSize`, preserving continuous rotation when a small committee spans term boundaries. Old terms retain `(slotWithinTerm + view) mod committeeSize` and their original committees. `view` increments on takeover. A persisted election record contains the candidate snapshot, prior participation counts, history hash, seed and selected committee hash; the term and epoch retain its `electionHash`. `verifyFairElection` checks a record against a trusted hash and committee. The platform database remains the authority for historical counts.
+
+Upgrades apply fair selection only to newly created terms. Previously frozen committees and signatures are not rewritten. The previous stake-ranked main/backup-pool algorithm remains available for historical analysis; it is no longer used to select new terms.
 
 Master assigns each configured research role exactly once to healthy elected workers other than itself. Assignment counts must differ by at most one; with six roles and six Workers, each Worker receives one role. Invalid plans are repaired by deterministic role-order/committee-order round robin and the repair is recorded. With fewer than seven members, a worker may perform multiple roles. An unavailable old Master does not block healthy successors if at least three members remain available. The original committee identity stays recorded. Research availability does not reduce the confirmation threshold; a three-member committee needs all three signatures to publish.
 
@@ -44,6 +46,14 @@ Consumers should use `verifyPublishedEpoch(chainId, epoch)` for stored envelopes
 
 All wallets currently share platform custody and validator code. These are individual node signatures over deterministic validation, not independent machines, a P2P vote network or Byzantine consensus. The design borrows the supermajority idea from BEP-126 without implementing its justified/finalized ancestry, fork choice or distributed locking. No trade execution or financial slashing is introduced.
 
+## Round cadence
+
+`network.epochMs` now means the minimum wait **after a round finishes**, default `300000` milliseconds. A round's `roundIntervalMs` is frozen on creation. Publication or final failure atomically persists `finishedAt` and `nextEligibleAt`; the scheduler will not start a later round before that time. Research and confirmation time are additional, so this is not a promise of one published package every five minutes. Master takeover remains within the same round and does not start the wait.
+
+Restart preserves the remaining wait. A long outage allows at most the next round to start once qualification is satisfied; it does not replay missed historical slots or create overlapping rounds. New deployments with no previous epoch can start immediately. Historical terminal epochs with no persisted finish time use a one-time, durable first-observed timestamp and wait a full interval conservatively; their original outputs remain unchanged. Old start-relative scheduling records do not shorten this delay.
+
+An interval-only configuration change applies to subsequently opened rounds without recomputing an active term's committee or network hash. Other network configuration changes retain the existing term-boundary restriction. A round already opened with a recorded interval keeps it. Upgraded running epochs without that field use 300000 ms on completion. These are host-clock scheduling rules, not independently attested blockchain timestamps.
+
 ## Failure and penalties
 
 An epoch has a configured deadline, ten minutes by default. Expiry aborts in-flight research and triggers the next deterministic Master. Valid recent reports can be reused. Old generation results cannot finalize after takeover. After every committee member has had a turn without success, the epoch fails rather than fabricating an output.
@@ -55,7 +65,7 @@ The staking contract intentionally exposes no principal-slashing function. Becau
 ## BSC references and differences
 
 - [BEP-294](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP294.md): reference for actual bonded stake and exit lifecycle. A2A uses its own stake contract and does not grant BSC validator rights.
-- [BEP-131](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP131.md): reference for main and backup candidate pools. A2A adds compute availability and a smaller configurable committee.
+- [BEP-131](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP131.md): reference for the original main/backup candidate-pool design. A2A now uses its own participation-count fairness rule; it does not claim this is the BEP-131 election algorithm.
 - [Parlia rotation](https://github.com/bnb-chain/bsc/blob/master/consensus/parlia/snapshot.go) and [BEP-341](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-341.md): reference for deterministic turns. A2A uses research time slots, not BSC block cadence.
 - [BEP-126](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP126.md): reference for supermajority confirmation. A2A uses a single-candidate certificate; BEP-126 justified/finalized ancestry, distributed locking and fork choice are not implemented.
 - [BSC slash rules](https://docs.bnbchain.org/bnb-smart-chain/slashing/slash-rules/): reference for evidence and quarantine categories. BSC monetary thresholds are not copied.

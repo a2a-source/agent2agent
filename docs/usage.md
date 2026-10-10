@@ -225,3 +225,10 @@ See [release verification and contract boundaries](release.md) for clean runtime
 New published epoch envelopes include a committee certificate. Keep the whole envelope when exporting research. Use `verifyPublishedEpoch` from `src/confirmation.ts` to check the original proposer and the required certificate against the stored committee; do not use only `verifyQsp` as proof of committee approval. The snapshot must itself be trusted. See [protocol rules and hosted trust boundary](protocol.md#committee-confirmation).
 
 A missing signer leaves the round pending for automatic retry. The threshold stays strictly above two thirds; in a three-node committee all three signatures are required. Master replacement resumes the same candidate and preserves its original expiry. If the round cannot confirm in time it fails automatically; the scheduler can start the next eligible round. Pending confirmation is independent of LLM-provider and pricing availability. A confirmed QSP remains a research proposal with `executed: false`.
+
+
+## Fair elections and the five-minute wait
+
+The default `network.epochMs` is `300000`: the next round starts no earlier than five minutes after publication or final failure, plus any qualification/provider delay. Research time comes before this interval. Existing local overrides remain effective; remove an older `epochMs` override to adopt the default. Restart retains the wait, and missed time does not trigger catch-up rounds.
+
+New terms choose qualified Agents with the fewest prior committee terms, with deterministic hash ordering for ties. Bonded funds above 0.3 BNB do not buy extra priority. Each selected term counts once, including terms whose research fails. New identities start at zero; the scheme does not prevent identity splitting. Existing committees finish their original terms. Public epoch envelopes expose `electionHash`, `rotationSlot`, `roundIntervalMs`, `finishedAt` and `nextEligibleAt` where supported; older envelopes can lack them. Election snapshots live in the SQLite `election` records and can be checked with `verifyFairElection` against a trusted term hash.

@@ -1,3 +1,4 @@
+import { nextRoundAt } from "./cadence.js";
 import type { TaxSettlement } from "./tax-settlement.js";
 import type { Runner } from "./runner.js";
 import type { Watcher } from "./watcher.js";
@@ -154,8 +155,8 @@ export class Scheduler {
       if (e?.status === "FAILED" || (!providerReady && !confirming)) return;
       if (!e) {
         const last = db.all<Epoch>("epoch").sort((a, b) => b.slot - a.slot)[0];
-        const schedule = db.get<{ nextAt: number }>("schedule", "network");
-        if (schedule && now < schedule.nextAt) return;
+        if (now < nextRoundAt(db, now, this.runner.config.network.epochMs))
+          return;
         const candidates = this.runner.candidates(now);
         if (candidates.length < 3) return;
         e = this.runner.epochs.open(
@@ -164,9 +165,6 @@ export class Scheduler {
           this.runner.config.network,
           now,
         );
-        db.put("schedule", "network", {
-          nextAt: now + this.runner.config.network.epochMs,
-        });
       }
       if (
         this.runTask ||

@@ -1,10 +1,27 @@
+import {
+  createFairElection,
+  verifyFairElection,
+  type FairElection,
+} from "./fair-election.js";
+import {
+  DEFAULT_ROUND_INTERVAL_MS,
+  validInterval,
+  terminalTiming,
+} from "./cadence.js";
 import { Store } from "./store.js";
 import { Confirmations, type ConfirmationCertificate } from "./confirmation.js";
-import { elect, leader, hash, type Candidate } from "./protocol.js";
+import { leader, hash, type Candidate } from "./protocol.js";
 export interface EpochConfig {
   termSlots: number;
   committeeSize: number;
   timeoutMs: number;
+  epochMs?: number;
+}
+// Cadence is frozen per round separately; an interval-only upgrade must not recompute an active term.
+export function sameResearchNetworkConfig(a: EpochConfig, b: EpochConfig) {
+  const { epochMs: _a, ...left } = a,
+    { epochMs: _b, ...right } = b;
+  return hash(left) === hash(right);
 }
 export interface Epoch {
   id: string;
@@ -14,12 +31,17 @@ export interface Epoch {
   master: string;
   committee: Candidate[];
   snapshotHash: string;
+  electionHash?: string;
   configHash: string;
   config: EpochConfig;
   deadline: number;
   status: "RUNNING" | "PUBLISHED" | "FAILED";
   output?: unknown;
   signature?: string;
+  rotationSlot?: number;
+  roundIntervalMs?: number;
+  finishedAt?: number;
+  nextEligibleAt?: number;
   confirmationRequired?: boolean;
   confirmationDeadline?: number;
   confirmationViewMs?: number;
@@ -59,32 +81,73 @@ export class Epochs {
         committee: Candidate[];
         snapshotHash: string;
         configHash: string;
+        config?: EpochConfig;
+        electionHash?: string;
       }>("term", termId);
       if (!saved) {
+        const { proof, committee } = createFairElection(
+          this.db,
+          term,
+          candidates,
+          config.committeeSize,
+          configHash,
+        );
         saved = {
-          committee: elect(
-            candidates,
-            `A2A:1:term:${term}`,
-            config.committeeSize,
-          ),
+          committee,
+          electionHash: hash(proof),
           snapshotHash: hash(
             [...candidates].sort((a, b) => a.id.localeCompare(b.id)),
           ),
           configHash,
+          config,
         };
+        this.db.insert("election", termId, proof);
         this.db.insert("term", termId, saved);
       }
-      if (saved.configHash !== configHash)
-        throw Error("configuration changes require a new term");
+      if (saved.electionHash) {
+        const proof = this.db.get<FairElection>("election", termId);
+        if (
+          !proof ||
+          proof.term !== term ||
+          !verifyFairElection(
+            proof,
+            saved.electionHash,
+            saved.committee,
+            saved.configHash,
+          )
+        )
+          throw Error("invalid saved election proof");
+      }
+      let frozenConfig = config;
+      if (saved.configHash !== configHash) {
+        const priorConfig =
+          saved.config ??
+          this.db.all<Epoch>("epoch").find((e) => e.term === term)?.config;
+        if (
+          !priorConfig ||
+          hash(priorConfig) !== saved.configHash ||
+          !sameResearchNetworkConfig(priorConfig, config)
+        )
+          throw Error("configuration changes require a new term");
+        frozenConfig = priorConfig;
+      }
       // Current availability is checked by the runner; frozen committee never shrinks.
       const e: Epoch = {
         id,
         slot,
         term,
         view: 0,
-        master: leader(saved.committee, slot % config.termSlots, 0).id,
+        master: leader(
+          saved.committee,
+          saved.electionHash ? slot : slot % config.termSlots,
+          0,
+        ).id,
+        ...(saved.electionHash ? { rotationSlot: slot } : {}),
         ...saved,
-        config,
+        config: frozenConfig,
+        roundIntervalMs: validInterval(
+          config.epochMs ?? DEFAULT_ROUND_INTERVAL_MS,
+        ),
         deadline: now + config.timeoutMs,
         status: "RUNNING",
         confirmationRequired: true,
@@ -105,9 +168,14 @@ export class Epochs {
         e.view + 1 >= e.committee.length
       ) {
         e.status = "FAILED";
+        Object.assign(e, terminalTiming(e, now));
       } else {
         e.view++;
-        e.master = leader(e.committee, e.slot % e.config.termSlots, e.view).id;
+        e.master = leader(
+          e.committee,
+          e.rotationSlot ?? e.slot % e.config.termSlots,
+          e.view,
+        ).id;
         e.deadline = Math.min(
           e.confirmationDeadline ?? Number.MAX_SAFE_INTEGER,
           now + (e.confirmationViewMs ?? e.config.timeoutMs),
@@ -146,6 +214,7 @@ export class Epochs {
         ...e,
         ...(confirmation ? { confirmation } : {}),
         status: "PUBLISHED",
+        ...terminalTiming(e, now),
         output,
         signature,
       });
