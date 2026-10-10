@@ -9,6 +9,10 @@ import { PortfolioCollector } from "../src/portfolio-snapshot.js";
 import { ConfirmedStablePlans } from "../src/confirmed-stable-plans.js";
 import { InvestmentPlanning } from "../src/investment-planning.js";
 import { assets, stableFixture } from "./helpers/stable-qsp.js";
+import { Llm } from "../src/llm.js";
+import { Scheduler } from "../src/scheduler.js";
+import { loadConfig } from "../src/config.js";
+import { deferredPrice, priceQuote } from "./helpers/deferred-price.js";
 async function fixture(path = ":memory:") {
   const db = new Store(path),
     budget = new Budget(db),
@@ -384,6 +388,117 @@ test("first valid epoch discovery freezes the wallet roster across late registra
         .sort(),
       ["after-valid", "before-valid", "investor"],
     );
+  } finally {
+    x.db.close();
+  }
+});
+
+for (const cached of ["absent", "valid", "expired"] as const) {
+  test(`scheduler planning survives deferred oracle refresh (cached=${cached})`, async (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.now() });
+    const x = await fixture();
+    const oracle = deferredPrice();
+    const llm = new Llm(
+      x.db,
+      x.budget,
+      loadConfig().llm,
+      "test",
+      oracle.source,
+    );
+    x.budget.credit("investor", "compute", 1000000000000000n);
+    const consumer = new ConfirmedStablePlans(x.db, x.budget, 56, 1000, () =>
+      llm.priceReady() ? llm.maximum() : undefined,
+    );
+    const planning = new InvestmentPlanning(
+      x.db,
+      x.collector,
+      consumer,
+      x.config,
+      () => 1100,
+    );
+    const runner: any = {
+      agents: { db: x.db, list: () => [] },
+      llm,
+      cancel() {},
+    };
+    llm.probeProvider = async () => false;
+    const scheduler = new Scheduler(
+      runner,
+      {
+        observeResearch() {},
+        recoverOperational: async () => {},
+      } as any,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      planning,
+    );
+    try {
+      if (cached !== "absent") {
+        const initial = llm.refreshPrice();
+        const quote = priceQuote();
+        oracle.pending.at(-1)!.resolve(quote);
+        await initial;
+        if (cached === "expired") t.mock.timers.tick(60001);
+      }
+      // A model request may refresh concurrently with the scheduler.
+      const concurrent = llm.refreshPrice();
+      const tick = scheduler.tick();
+      await new Promise((resolve) => setImmediate(resolve));
+      assert.equal(
+        x.db
+          .all<any>("investment-planning-attempt")
+          .filter((a) => a.status === "FAILED").length,
+        0,
+      );
+      if (cached !== "valid")
+        assert.equal(x.db.all("investment-planning-attempt").length, 0);
+      oracle.pending.at(-1)!.resolve(priceQuote());
+      await tick;
+      oracle.pending[oracle.pending.length - 2]!.resolve(priceQuote());
+      await concurrent;
+      const recovery = scheduler.tick();
+      oracle.pending.at(-1)!.resolve(priceQuote());
+      await recovery;
+      await scheduler.stop();
+      assert.equal(x.db.all<any>("investment-planning-job")[0].status, "DONE");
+      assert.equal(x.db.all("investment-planning-attempt").length, 1);
+      assert.equal(x.db.all("stable-wallet-plan").length, 1);
+    } finally {
+      for (const pending of oracle.pending) pending.resolve(priceQuote());
+      await scheduler.stop();
+      x.db.close();
+    }
+  });
+}
+
+test("unavailable compute price defers claims but still expires pending jobs", async () => {
+  const x = await fixture();
+  let now = 1100;
+  const consumer = new ConfirmedStablePlans(
+    x.db,
+    x.budget,
+    56,
+    1000,
+    () => undefined,
+  );
+  const service = new InvestmentPlanning(
+    x.db,
+    x.collector,
+    consumer,
+    x.config,
+    () => now,
+  );
+  try {
+    await service.tick();
+    assert.equal(x.db.all("investment-planning-attempt").length, 0);
+    assert.equal(x.db.all<any>("investment-planning-job")[0].status, "PENDING");
+    now = 1500;
+    await service.tick();
+    assert.equal(x.db.all<any>("investment-planning-job")[0].status, "EXPIRED");
+    assert.equal(x.reads(), 0);
   } finally {
     x.db.close();
   }

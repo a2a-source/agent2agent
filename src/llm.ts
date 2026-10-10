@@ -17,6 +17,7 @@ export class Llm {
   private readonly apiKeys: string[];
   private keyCursor = 0;
   private quoteSnapshot?: PriceQuote;
+  private priceRefresh = 0;
   constructor(
     readonly db: Store,
     readonly budget: Budget,
@@ -200,15 +201,21 @@ export class Llm {
   }
   async refreshPrice(signal?: AbortSignal) {
     if (!this.priceSource) return;
-    this.quoteSnapshot = undefined;
+    const refresh = ++this.priceRefresh;
     const bounded = AbortSignal.any([
       AbortSignal.timeout(this.config.timeoutMs),
       ...(signal ? [signal] : []),
     ]);
-    const quote = await this.waitForQuote(this.priceSource.quote(), bounded);
-    validateQuote(quote, this.priceSource.maxAgeSeconds);
-    this.quoteSnapshot = quote;
-    return quote;
+    try {
+      const quote = await this.waitForQuote(this.priceSource.quote(), bounded);
+      validateQuote(quote, this.priceSource.maxAgeSeconds);
+      // Keep a valid snapshot during refresh; only the latest refresh may publish.
+      if (refresh === this.priceRefresh) this.quoteSnapshot = quote;
+      return quote;
+    } catch (error) {
+      if (refresh === this.priceRefresh) this.quoteSnapshot = undefined;
+      throw error;
+    }
   }
   private async waitForQuote(p: Promise<PriceQuote>, signal: AbortSignal) {
     if (signal.aborted) throw Error("BNB/USD oracle unavailable");

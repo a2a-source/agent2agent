@@ -250,6 +250,8 @@ export class InvestmentPlanning {
         return;
       }
       if (now < j.nextAt) return;
+      // Oracle outages must not spend attempts, but recovery/expiry above still run.
+      if (this.consumer.minimumCompute() === undefined) return;
       const job: Job = {
         ...j,
         status: "RUNNING",
