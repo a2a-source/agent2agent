@@ -1,3 +1,4 @@
+import { ZodError } from "zod";
 import { hash } from "./protocol.js";
 import { Store } from "./store.js";
 export interface ResearchFeedback {
@@ -5,12 +6,95 @@ export interface ResearchFeedback {
   instruction: string;
 }
 export function validationFeedback(error: unknown): ResearchFeedback {
-  if ((error as any)?.name === "ZodError")
+  if (error instanceof ZodError) {
+    const fields = new Set([
+      "summary",
+      "missing",
+      "evidenceIds",
+      "recommendation",
+      "uncertainty",
+      "sections",
+      "id",
+      "content",
+      "evidenceRefs",
+      "sources",
+      "decisions",
+      "disagreements",
+      "signals",
+      "risks",
+      "role",
+      "asset",
+      "action",
+      "evidence",
+      "conditions",
+      "invalidation",
+      "targetWeightBps",
+      "chainId",
+      "rationale",
+      "maxSlippageBps",
+    ]);
+    const types = new Set([
+      "string",
+      "number",
+      "boolean",
+      "array",
+      "object",
+      "null",
+    ]);
+    const issues = error.issues.slice(0, 8).map((issue) => {
+      const path =
+        issue.path
+          .slice(0, 6)
+          .map((part, index) =>
+            typeof part === "number" &&
+            Number.isSafeInteger(part) &&
+            part >= 0 &&
+            part <= 9999
+              ? `[${part}]`
+              : `${index ? "." : ""}${typeof part === "string" && fields.has(part) ? part : "[field]"}`,
+          )
+          .join("") || "root";
+      let correction = "invalid value; follow requiredOutput";
+      if (issue.code === "invalid_type") {
+        correction = types.has(issue.expected)
+          ? `expected ${issue.expected}`
+          : "wrong type; follow requiredOutput";
+        if (issue.received === "undefined")
+          correction += "; required field absent";
+      } else if (issue.code === "too_big" || issue.code === "too_small") {
+        const bound = issue.code === "too_big" ? issue.maximum : issue.minimum;
+        if (
+          typeof bound === "number" &&
+          Number.isSafeInteger(bound) &&
+          Math.abs(bound) <= 1000000
+        )
+          correction = `${issue.code === "too_big" ? "maximum" : "minimum"} ${bound} (${issue.exact ? "exact" : issue.inclusive ? "inclusive" : "exclusive"}${issue.type === "string" ? "; characters" : issue.type === "array" ? "; items" : ""})`;
+      } else if (issue.code === "unrecognized_keys") {
+        correction =
+          issue.path[0] === "sections"
+            ? "extra keys forbidden; output sections contain only id, content, evidenceRefs, never template title/instruction"
+            : "extra keys forbidden; include only fields in requiredOutput";
+      }
+      return `${path}: ${correction}`;
+    });
+    const missingRoot = error.issues.some(
+      (issue) =>
+        issue.code === "invalid_type" &&
+        issue.received === "undefined" &&
+        issue.path.length === 1 &&
+        typeof issue.path[0] === "string" &&
+        fields.has(issue.path[0]),
+    );
     return {
       code: "OUTPUT_FORMAT",
-      instruction:
-        "Your root JSON must contain ALL required fields. Role report: summary (string), missing (array), evidenceIds (array), recommendation (string), uncertainty (string), sections (array of id/content/evidenceRefs). Returning only sections is invalid. Master requires summary, sections, decisions, disagreements, signals and risks. Follow requiredOutput exactly; no wrapper.",
+      instruction: (
+        `Correct schema issues: ${issues.join("; ")}. Follow requiredOutput exactly; no wrapper.` +
+        (missingRoot
+          ? " Include every required root field from requiredOutput."
+          : "")
+      ).slice(0, 1800),
     };
+  }
   const message = error instanceof Error ? error.message : "";
   if (message.startsWith("news FULL_TEXT claim"))
     return {
@@ -40,12 +124,12 @@ export function validationFeedback(error: unknown): ResearchFeedback {
     return {
       code: "EVIDENCE",
       instruction:
-        "Cite only supplied evidence references; each signal needs fresh market evidence cited by a role.",
+        "For root evidenceIds use only supplied frozen E references or evidence IDs, never tool URLs. sections[].evidenceRefs may use supplied frozen references/IDs or exact observed tool-source URLs permitted by the task. Never invent references. Each signal needs fresh market evidence cited by a role.",
     };
   return {
     code: "OUTPUT_FORMAT",
     instruction:
-      "Return the requested valid JSON schema including every reportTemplate section in order, with content and evidenceRefs arrays; cover each role exactly once, use arrays, and check required fields against the task.",
+      "Return the requested valid JSON schema including every reportTemplate section in order, with content as a plain string (1–2400 characters) and evidenceRefs as an array. Output sections contain only id, content, evidenceRefs, never template title/instruction. Cover each role exactly once and check required fields against the task.",
   };
 }
 export type ResearchFailure =

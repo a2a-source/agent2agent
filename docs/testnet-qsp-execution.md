@@ -79,7 +79,7 @@ Router: `0xd99d1c33f9fc3444f8101754abc46c52416550d1`. Stake contract: `0xeed3bc5
 | 103 | investment-test-3 | SELL BTC | [0xb33b9249…](https://testnet.bscscan.com/tx/0xb33b92491c0fd17ad40ef280267ea2ca02210f28c820885fe8ae1b2edf82a0e6) |
 | 103 | investment-test-3 | SELL ETH | [0x48d8f46d…](https://testnet.bscscan.com/tx/0x48d8f46d0b153013d8794507a23dc859f8b56e0b563a02130aac601ae83fb4e1) |
 
-This evidence is a bounded real-chain execution test, not a six-hour stability acceptance. Live LLM-to-execution testing, prolonged cadence/failover verification, native BNB conversion and priced external-flow accounting remain separate acceptance items.
+This evidence is a bounded real-chain execution test, not a six-hour stability acceptance. Live LLM-to-execution testing, prolonged cadence/failover verification and priced external-flow accounting remain separate acceptance items. The native scenarios below separately verify native BNB conversion.
 
 ## Subsequent live research checks
 
@@ -94,3 +94,21 @@ The 24 confirmed swaps above therefore remain a signed-fixture-QSP execution pro
 The first long-run attempt was interrupted and retained with a `NOT_ESTABLISHED` verdict. Read-only replay identified a laboratory configuration change across the unfinished epoch: single-round mode used an 80-request daily limit, while long-run mode used 800. The immutable research configuration hash correctly rejected that change. At takeover, the frozen research context had also exceeded its 30-minute lifetime. Neither changing the Master nor retrying with the old configuration could repair that round.
 
 The runner now records allowlisted failure codes and automatically terminates an unconfirmed round whose frozen research configuration changed or whose context expired. Generation and confirmation fences remain enforced; the scheduler waits the normal end-relative interval before collecting fresh data for a new round. Provider failures retain the existing takeover path. A new full-duration run is required after this correction; the interrupted interval is not counted as six-hour acceptance.
+
+## Native BNB funding scenarios
+
+A separate chain97 run on commit `14fb20b` used a newly created independent Worker, `0xFf5A746F6b913F52023364A98Aa4dC00974dC796`, with an actual 0.3 BNB bond and initially no registered ERC20 holdings. Its investment wallet received 0.32 tBNB before bonding. The separate registry uses canonical testnet WBNB `0xae13d989dac2f0debff460ac112a837c89baa7cd`; it does not reinterpret earlier qBNB plans. Router `WETH()`, factory and runtime code identities were checked. Operator-owned liquidity supplied 10 tBNB and 6,000 fixture qUSD to pair `0x3eA4bAc2Bd9DF671aF6A98fE7A8BB964a591B4B6`.
+
+| Round | Scenario | Result | Period PnL, micro test-USD |
+|---|---|---|---:|
+| 201 | Native-only funding; signed BNB reduction | One payable swap, no approval; 0.01881764245 tBNB became approximately 11.246883 qUSD | -48348 |
+| 202 | Fresh BTC allocation against small proceeds | NO_ACTION / BUY_BUDGET_BELOW_ECONOMIC_FLOOR; no transaction | 0 |
+| 203 | Explicit external funding of 200 fixture qUSD before the opening snapshot | One capped 20.165710 qUSD BTC buy, with one approval and one swap | -45815 |
+
+All three jobs finished with KNOWN wallet and network accounting. Confirmed closing snapshots, native-aware zero-external-flow proofs, canonical fills and subsequent-round feedback were persisted. The test reverified each fill from its canonical receipt and checked the BTC buy against the 10% available-stable budget. The 0.3 BNB bond remained unchanged. No native Gas refill was needed between these rounds; reduction retained protected Gas and operating fee headroom. Subsequent signed allocations retained a small 100-bps BNB target to accommodate that residual without bypassing the planner's reduction-first rule.
+
+Native swap: [0x56f36dad…](https://testnet.bscscan.com/tx/0x56f36dadde107cdfb0f2f57bd797a4e9c744e784a8f1616c7c62a30c1b82f013). BTC swap: [0x4c199e99…](https://testnet.bscscan.com/tx/0x4c199e99d95192c012f3d4971ee031cb14acd8ad3403866877c9160843b2e934).
+
+These three scenarios used synthetic committee-signed QSP fixtures and fixed test-oracle valuations, not live LLM signals. Round203's additional qUSD was external test funding, not profit or proceeds attributed to round201. This verifies the native execution/accounting path separately; it does not establish the real-LLM trading loop or six-hour stability acceptance. Local evidence is retained in `var/testnet/investment/native-execution-e2e.sqlite` and `native-execution-e2e-result.json`.
+
+The corrected scheduler subsequently ended the obsolete round and automatically opened epoch `1791643428358` after its normal interval. That round dispatched 25 additional real model requests (79 total in the research database). Positions and macro completed; market/news exhausted their bounded output-validation retries. Read-only replay identified misplaced tool URLs in frozen `evidenceIds`, object-valued section content with extra template fields, and two news sections exceeding the unchanged 2,400-character bound. Retry feedback now identifies sanitized field/type/length errors and distinguishes frozen evidence IDs from observed tool-source URLs; report prompts explicitly require concise string sections. These corrections have automated regression coverage, but this unsuccessful live round remains a failure and is not traded-QSP evidence.

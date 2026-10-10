@@ -152,3 +152,159 @@ test("malformed news verification rows are model errors, not source outages", ()
   assert.equal(classifyResearchFailure(error), "INVALID_OUTPUT");
   assert.equal(validationFeedback(error).code, "ROLE_COVERAGE");
 });
+
+import { researchReportSchema, normalizeReport } from "../src/qsp-v2.js";
+const validReport = {
+  summary: "observed",
+  missing: [],
+  evidenceIds: [],
+  recommendation: "wait",
+  uncertainty: "limited",
+  sections: [{ id: "market", content: "observed", evidenceRefs: [] }],
+};
+test("object section content and extra template keys receive accurate corrections", () => {
+  const parsed = researchReportSchema.safeParse({
+    ...validReport,
+    sections: [
+      {
+        id: "market",
+        content: { secret: "PRIVATE_VALUE" },
+        evidenceRefs: [],
+        title: "PRIVATE_VALUE",
+        instruction: "PRIVATE_VALUE",
+      },
+    ],
+  });
+  assert(!parsed.success);
+  const feedback = validationFeedback(parsed.error).instruction;
+  assert.match(feedback, /sections\[0\]\.content.*string/);
+  assert.match(feedback, /only id, content, evidenceRefs/);
+  assert.doesNotMatch(feedback, /PRIVATE_VALUE|ALL required fields/);
+});
+test("oversized news identifies actual content maximum without claiming absent root fields", () => {
+  const parsed = researchReportSchema.safeParse({
+    ...validReport,
+    sections: [
+      { id: "asset_news", content: "x".repeat(2814), evidenceRefs: [] },
+    ],
+  });
+  assert(!parsed.success);
+  const feedback = validationFeedback(parsed.error).instruction;
+  assert.match(feedback, /sections\[0\]\.content.*maximum.*2400/);
+  assert.doesNotMatch(feedback, /ALL required fields|missing root/);
+  assert(researchReportSchema.safeParse(validReport).success);
+});
+test("schema feedback bounds issues and sanitizes arbitrary paths and messages", () => {
+  const error = new z.ZodError(
+    Array.from({ length: 100 }, () => ({
+      code: "too_small",
+      type: "string",
+      minimum: 1,
+      inclusive: true,
+      exact: false,
+      path: ["SECRET_INSTRUCTION", 0, "content"],
+      message: "PRIVATE_VALUE",
+    })),
+  );
+  const feedback = validationFeedback(error).instruction;
+  assert(feedback.length <= 1800);
+  assert.match(feedback, /minimum.*1/);
+  assert.doesNotMatch(feedback, /SECRET_INSTRUCTION|PRIVATE_VALUE/);
+});
+test("root tool URLs remain rejected and feedback distinguishes the two reference locations", () => {
+  let failure: unknown;
+  try {
+    normalizeReport(
+      { ...validReport, evidenceIds: ["https://source.example/market"] },
+      { evidence: [] } as any,
+    );
+  } catch (error) {
+    failure = error;
+  }
+  assert(failure instanceof Error);
+  const feedback = validationFeedback(failure);
+  assert.equal(feedback.code, "EVIDENCE");
+  assert.match(feedback.instruction, /root evidenceIds.*frozen/);
+  assert.match(
+    feedback.instruction,
+    /sections\[\]\.evidenceRefs.*observed tool/,
+  );
+});
+test("fallback specifies string content and array references without template metadata", () => {
+  const feedback = validationFeedback(
+    new SyntaxError("PRIVATE_VALUE"),
+  ).instruction;
+  assert.match(feedback, /content.*string/);
+  assert.match(feedback, /evidenceRefs.*array/);
+  assert.match(feedback, /only id, content, evidenceRefs/);
+});
+
+import { validateReportSections } from "../src/report-templates.js";
+import { validateNewsBodyClaims } from "../src/research-guidance.js";
+test("concise unresolved publisher headlines retain observed refs within unchanged section bounds", () => {
+  const refs = [
+    "https://news.example/btc",
+    "https://news.example/eth",
+    "https://news.example/bnb",
+  ];
+  const content =
+    ["BTCB", "ETH", "WBNB"]
+      .map(
+        (asset) =>
+          `asset=${asset}; status=HEADLINE_ONLY; headline=${asset} update; publishedAt=2026-10-10T00:00:00Z; publisherUrl=UNKNOWN; relevance=unverified`,
+      )
+      .join("\n") +
+    "\nPublisher resolution unavailable; other discovered headlines omitted.";
+  const report = researchReportSchema.parse({
+    ...validReport,
+    sections: [{ id: "asset_news", content, evidenceRefs: refs }],
+  });
+  assert.deepEqual(
+    validateReportSections(
+      {
+        version: "role-report/1",
+        title: "News",
+        sections: [{ id: "asset_news", title: "News", instruction: "Review" }],
+      },
+      report.sections,
+      new Set(refs),
+    ),
+    report.sections,
+  );
+  validateNewsBodyClaims("news", report, []);
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          ...report,
+          sections: [
+            {
+              ...report.sections![0]!,
+              content: content.replace(
+                "status=HEADLINE_ONLY",
+                "status=FULL_TEXT",
+              ),
+            },
+          ],
+        },
+        [],
+      ),
+    /news FULL_TEXT claim/,
+  );
+  assert.throws(
+    () =>
+      validateReportSections(
+        {
+          version: "role-report/1",
+          title: "News",
+          sections: [
+            { id: "asset_news", title: "News", instruction: "Review" },
+          ],
+        },
+        report.sections,
+        new Set(),
+      ),
+    /fabricated evidence/,
+  );
+});
