@@ -1,3 +1,4 @@
+import { verifyPublishedEpoch } from "./confirmation.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { validateReportSections } from "./report-templates.js";
 import { researchChecks, validateC4Targets } from "./research-facts.js";
@@ -30,7 +31,7 @@ import {
   validateRoleCoverage,
   validateNewsBodyClaims,
 } from "./research-guidance.js";
-import { verifyQsp } from "./qsp.js";
+
 type Call = (
   agent: string,
   id: string,
@@ -89,15 +90,8 @@ export async function buildResearchPackage(p: {
     let prior = null;
     if (previous) {
       const output = qspV2Schema.parse(previous.output);
-      if (
-        !verifyQsp(
-          config.chain.id,
-          output,
-          previous.signature!,
-          agents.get(previous.master).wallet,
-        )
-      )
-        throw Error("previous QSP signature invalid");
+      if (!verifyPublishedEpoch(config.chain.id, previous))
+        throw Error("previous QSP signature or confirmation invalid");
       prior = {
         epoch: previous.id,
         hash: hash(output),

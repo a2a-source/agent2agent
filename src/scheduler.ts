@@ -96,41 +96,49 @@ export class Scheduler {
       }
       if (this.stopped) return;
       this.penalties.observeResearch();
+      const confirming = db
+        .all<Epoch>("epoch")
+        .some(
+          (e) =>
+            e.status === "RUNNING" && !!db.get("confirmation-proposal", e.id),
+        );
       let priceReady = false;
-      try {
-        await this.runner.llm.refreshPrice();
-        priceReady = this.runner.llm.priceReady();
-      } catch {}
-      db.put(
-        "service-error",
-        "price-oracle",
-        priceReady
-          ? { status: "HEALTHY" }
-          : { at: Date.now(), reason: "PRICE_RETRY_PENDING" },
-      );
-      const providerReady =
-        priceReady && (await this.runner.llm.probeProvider());
-      if (this.stopped) return;
-      await this.penalties.recoverOperational(async (id) => {
-        const a = this.runner.agents.get(id),
-          state = db.get<ChainState>("chain-state", id);
-        if (
-          !providerReady ||
-          a.launch !== "CONFIRMED" ||
-          !state?.known ||
-          Date.now() - state.observedAt >
-            this.runner.config.network.stateMaxAgeMs ||
-          BigInt(state.bonded) < MIN_STAKE ||
-          BigInt(state.exit) > 0n ||
-          this.runner.budget.available(id) < this.runner.llm.maximum()
-        )
-          return false;
-        const wallet = db.get<EncryptedWallet>("wallet", id);
-        if (!wallet) return false;
-        await this.runner.agents.vault.verify(wallet);
-        return true;
-      });
-      if (this.stopped) return;
+      let providerReady = false;
+      if (!confirming) {
+        try {
+          await this.runner.llm.refreshPrice();
+          priceReady = this.runner.llm.priceReady();
+        } catch {}
+        db.put(
+          "service-error",
+          "price-oracle",
+          priceReady
+            ? { status: "HEALTHY" }
+            : { at: Date.now(), reason: "PRICE_RETRY_PENDING" },
+        );
+        providerReady = priceReady && (await this.runner.llm.probeProvider());
+        if (this.stopped) return;
+        await this.penalties.recoverOperational(async (id) => {
+          const a = this.runner.agents.get(id),
+            state = db.get<ChainState>("chain-state", id);
+          if (
+            !providerReady ||
+            a.launch !== "CONFIRMED" ||
+            !state?.known ||
+            Date.now() - state.observedAt >
+              this.runner.config.network.stateMaxAgeMs ||
+            BigInt(state.bonded) < MIN_STAKE ||
+            BigInt(state.exit) > 0n ||
+            this.runner.budget.available(id) < this.runner.llm.maximum()
+          )
+            return false;
+          const wallet = db.get<EncryptedWallet>("wallet", id);
+          if (!wallet) return false;
+          await this.runner.agents.vault.verify(wallet);
+          return true;
+        });
+        if (this.stopped) return;
+      }
       const now = Date.now();
       let e = db.all<Epoch>("epoch").find((e) => e.status === "RUNNING");
       if (e && now >= e.deadline) {
@@ -138,12 +146,12 @@ export class Scheduler {
         this.runner.epochs.incident(
           `timeout:${e.id}:${e.view}`,
           e.master,
-          "ROUND_TIMEOUT",
+          confirming ? "CONFIRMATION_TIMEOUT" : "ROUND_TIMEOUT",
           now,
         );
         e = this.runner.epochs.takeover(e.id, e.view, now);
       }
-      if (e?.status === "FAILED" || !providerReady) return;
+      if (e?.status === "FAILED" || (!providerReady && !confirming)) return;
       if (!e) {
         const last = db.all<Epoch>("epoch").sort((a, b) => b.slot - a.slot)[0];
         const schedule = db.get<{ nextAt: number }>("schedule", "network");
@@ -160,15 +168,23 @@ export class Scheduler {
           nextAt: now + this.runner.config.network.epochMs,
         });
       }
-      if (this.runTask || db.get("incident", `${e.id}:${e.view}:failure`))
+      if (
+        this.runTask ||
+        (!db.get("confirmation-proposal", e.id) &&
+          db.get("incident", `${e.id}:${e.view}:failure`))
+      )
         return;
       this.runTask = this.runner
         .run(e)
-        .then(() => {})
+        .then(() => {
+          db.put("service-error", "runner", { status: "HEALTHY" });
+        })
         .catch(() => {
           db.put("service-error", "runner", {
             at: Date.now(),
-            reason: "ROUND_FAILED_WAITING_FOR_TAKEOVER",
+            reason: db.get("confirmation-proposal", e!.id)
+              ? "CONFIRMATION_RETRY_PENDING"
+              : "ROUND_FAILED_WAITING_FOR_TAKEOVER",
           });
         })
         .finally(() => {

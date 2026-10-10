@@ -5,6 +5,7 @@ import { assetSchema, assertResearchAssets } from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
+  confirmation: z.object({ timeoutMs: integer }).default({ timeoutMs: 60000 }),
   reportTemplates: z.record(templateSchema),
   host: z.string(),
   port: z.number().int().min(0).max(65535),
@@ -132,6 +133,7 @@ export function loadConfig(path?: string): Config {
   const c = schema.parse({
     ...base,
     ...override,
+    confirmation: { ...base.confirmation, ...override.confirmation },
     chain: { ...base.chain, ...override.chain },
     network: { ...base.network, ...override.network },
     llm: { ...base.llm, ...override.llm },

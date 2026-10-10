@@ -20,7 +20,7 @@ When there are more candidates than seats, the main pool fills all but one seat 
 
 Selected members are ordered by wallet address. A committee remains fixed for a default seven-slot term. Within that term the leader is `(slotWithinTerm + view) mod committeeSize`; `view` starts at zero and increments on takeover. No candidate appears twice. Snapshots and configuration hashes are stored with the epoch.
 
-Master assigns each configured research role exactly once to healthy elected workers other than itself. Assignment counts must differ by at most one; with six roles and six Workers, each Worker receives one role. Invalid plans are repaired by deterministic role-order/committee-order round robin and the repair is recorded. With fewer than seven members, a worker may perform multiple roles. An unavailable old Master does not block healthy successors if at least three members remain available. The original committee identity stays recorded; this is not a vote-quorum reduction because v0.1 has no BFT voting finality.
+Master assigns each configured research role exactly once to healthy elected workers other than itself. Assignment counts must differ by at most one; with six roles and six Workers, each Worker receives one role. Invalid plans are repaired by deterministic role-order/committee-order round robin and the repair is recorded. With fewer than seven members, a worker may perform multiple roles. An unavailable old Master does not block healthy successors if at least three members remain available. The original committee identity stays recorded. Research availability does not reduce the confirmation threshold; a three-member committee needs all three signatures to publish.
 
 ## Work and publication
 
@@ -28,7 +28,21 @@ The Master produces a validated assignment plan, workers produce source-bound re
 
 The output carries an epoch, view, Master, committee/configuration hashes, data time, research reports, signals, risks and `executed: false`. The Master signs `A2A-QSP:1:<chainId>:<canonical-payload-sha256>` using its wallet. Objects use sorted keys, arrays preserve order, and numbers must be safe integers. Canonicalization rejects unsupported/non-finite values.
 
-A persistent signing intent permits only one payload per epoch/view/Master identity. SQLite publication checks the current generation and allows one accepted final output per epoch. It rejects stale Masters and expired deadlines. This is hosted single-writer finalization; it is not BEP-126 consensus or a claim that signatures prove research correctness.
+A persistent signing intent permits only one payload per epoch/view/Master identity. SQLite publication checks the current generation and allows one accepted final output per epoch. It rejects stale Masters and expired deadlines. New epochs additionally require the committee confirmation certificate described below. This remains hosted coordination, not full BEP-126 consensus or a claim that signatures prove research correctness.
+
+## Committee confirmation
+
+Every newly opened epoch has `confirmationRequired: true`. After research completes and the original Master signs, the platform freezes that exact payload and signature. Each distinct committee wallet validates the candidate and signs a separate confirmation message; roles do not count as separate voters. Publication requires `floor(2*N/3)+1` valid signatures: 3/3, 5/7, or 7/9. The frozen committee never shrinks to compensate for offline members.
+
+Validation covers schema and exact parsed bytes, epoch/proposer/committee/configuration bindings, complete role coverage and eligible report authors. It checks stored reports and source hashes; v2 also checks the frozen context, referenced prior published package, all evidence content hashes, configured report templates, tool coverage/news provenance and deterministic risk rules. These checks do not repeat the LLM analysis or prove the truth of narrative conclusions. Confirmation makes no LLM requests and incurs no additional compute debit. A signer needs its wallet and current bonded eligibility; exhausted LLM credit or an unavailable LLM provider does not prevent it from confirming research already completed.
+
+The epoch envelope stores `confirmation` alongside unchanged `output` and original Master `signature`. Its descriptor includes `version: "a2a-confirmation/1"`, signing chain ID, epoch ID, `proposalHash = hash({output, signature})`, frozen committee hash, network configuration hash and fixed `expiresAt`. Each wallet signs `A2A-QSP-CONFIRM:1:<canonical-descriptor-sha256>`. A durable per-epoch/per-agent intent is recorded before signing; restart can only sign that same descriptor. The certificate contains distinct `{agent, signature}` votes and the service-recorded `confirmedAt`. That timestamp is not an independent time attestation.
+
+`confirmation.timeoutMs` defaults to 60000. At freeze, the total deadline is the earlier of that timeout and v2 `validUntil`; per-coordinator windows divide the original confirmation budget by committee size. A replacement Master inherits the same candidate, votes and total deadline, and cannot rerun research or alter the original payload. Stale coordinators and late votes cannot publish. Insufficient votes remain pending for automatic retry; expiry or exhausted coordinator turns marks the round FAILED. Subsequent rounds follow the existing network scheduler. LLM/price-oracle outages do not block confirmation retries or timeout processing. A three-node network with one missing vote therefore cannot publish that round.
+
+Consumers should use `verifyPublishedEpoch(chainId, epoch)` for stored envelopes, or `verifyConfirmation(chainId, output, signature, certificate, committee, networkConfigHash)` with a separately trusted frozen committee snapshot. `verifyQsp` verifies only the original Master signature. After takeover, `epoch.master` identifies the current coordinator while `output.master` still identifies the original proposer. Historical epochs without the required marker retain legacy verification; readers must not strip this marker from a new epoch or treat arbitrary unmarked external envelopes as trusted legacy records. Host storage and the trusted epoch snapshot define that migration boundary.
+
+All wallets currently share platform custody and validator code. These are individual node signatures over deterministic validation, not independent machines, a P2P vote network or Byzantine consensus. The design borrows the supermajority idea from BEP-126 without implementing its justified/finalized ancestry, fork choice or distributed locking. No trade execution or financial slashing is introduced.
 
 ## Failure and penalties
 
@@ -43,10 +57,10 @@ The staking contract intentionally exposes no principal-slashing function. Becau
 - [BEP-294](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP294.md): reference for actual bonded stake and exit lifecycle. A2A uses its own stake contract and does not grant BSC validator rights.
 - [BEP-131](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP131.md): reference for main and backup candidate pools. A2A adds compute availability and a smaller configurable committee.
 - [Parlia rotation](https://github.com/bnb-chain/bsc/blob/master/consensus/parlia/snapshot.go) and [BEP-341](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP-341.md): reference for deterministic turns. A2A uses research time slots, not BSC block cadence.
-- [BEP-126](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP126.md): finality research reference; its voting, locking and fork-choice rules are not implemented in hosted v0.1.
+- [BEP-126](https://github.com/bnb-chain/BEPs/blob/master/BEPs/BEP126.md): reference for supermajority confirmation. A2A uses a single-candidate certificate; BEP-126 justified/finalized ancestry, distributed locking and fork choice are not implemented.
 - [BSC slash rules](https://docs.bnbchain.org/bnb-smart-chain/slashing/slash-rules/): reference for evidence and quarantine categories. BSC monetary thresholds are not copied.
 
-All Agent processes and keys are hosted by one operator. Thresholds and multiple signatures would not by themselves establish independent trust domains. Live contract fees, permissions and implementations must be checked separately from these coordination rules.
+All Agent processes and keys are hosted by one operator. Thresholds and multiple signatures do not by themselves establish independent trust domains. Live contract fees, permissions and implementations must be checked separately from these coordination rules.
 
 ## QSP v2 research payload
 

@@ -428,11 +428,16 @@ test("Runner repairs six-worker collapse over HTTP and replaces only a failed re
       true,
     );
     assert.equal(peak, 2);
-    // Simulate recovery after paid synthesis completed but publication was lost.
+    // Simulate recovery after paid synthesis, BEFORE candidate freeze/signature collection.
+    db.remove("confirmation-proposal", first.id);
+    for (const row of db.entries("confirmation-intent"))
+      db.remove("confirmation-intent", row.id);
+    for (const row of db.entries("confirmation-vote"))
+      db.remove("confirmation-vote", row.id);
     const savedEpoch = epochs.get(first.id);
     const roleKey = `${first.id}:report:${config.roles[0]!.id}`;
     const savedReport = db.get<any>("report", roleKey);
-    db.put("epoch", first.id, { ...savedEpoch, status: "RUNNING" });
+    db.put("epoch", first.id, { ...first, status: "RUNNING" });
     db.put("report", roleKey, {
       ...savedReport,
       report: { ...savedReport.report, summary: "changed restored report" },

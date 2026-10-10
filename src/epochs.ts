@@ -1,4 +1,5 @@
 import { Store } from "./store.js";
+import { Confirmations, type ConfirmationCertificate } from "./confirmation.js";
 import { elect, leader, hash, type Candidate } from "./protocol.js";
 export interface EpochConfig {
   termSlots: number;
@@ -19,6 +20,10 @@ export interface Epoch {
   status: "RUNNING" | "PUBLISHED" | "FAILED";
   output?: unknown;
   signature?: string;
+  confirmationRequired?: boolean;
+  confirmationDeadline?: number;
+  confirmationViewMs?: number;
+  confirmation?: ConfirmationCertificate;
 }
 export class Epochs {
   constructor(readonly db: Store) {}
@@ -82,6 +87,7 @@ export class Epochs {
         config,
         deadline: now + config.timeoutMs,
         status: "RUNNING",
+        confirmationRequired: true,
       };
       this.db.insert("epoch", id, e);
       return e;
@@ -93,12 +99,19 @@ export class Epochs {
       if (e.status !== "RUNNING" || e.view !== expectedView)
         throw Error("stale epoch");
       if (now < e.deadline) throw Error("deadline not reached");
-      if (e.view + 1 >= e.committee.length) {
+      if (
+        (e.confirmationDeadline !== undefined &&
+          now >= e.confirmationDeadline) ||
+        e.view + 1 >= e.committee.length
+      ) {
         e.status = "FAILED";
       } else {
         e.view++;
         e.master = leader(e.committee, e.slot % e.config.termSlots, e.view).id;
-        e.deadline = now + e.config.timeoutMs;
+        e.deadline = Math.min(
+          e.confirmationDeadline ?? Number.MAX_SAFE_INTEGER,
+          now + (e.confirmationViewMs ?? e.config.timeoutMs),
+        );
       }
       this.db.put("epoch", id, e);
       return e;
@@ -118,8 +131,20 @@ export class Epochs {
       if (e.status === "PUBLISHED") throw Error("already published");
       if (e.status !== "RUNNING" || e.view !== view || e.master !== master)
         throw Error("stale epoch");
+      let confirmation: ConfirmationCertificate | undefined;
+      if (e.confirmationRequired) {
+        const book = new Confirmations(this.db);
+        const proposal = book.proposal(id);
+        if (
+          !proposal ||
+          proposal.descriptor.proposalHash !== hash({ output, signature })
+        )
+          throw Error("publication differs from frozen candidate");
+        confirmation = book.certificate(e, now);
+      }
       this.db.put("epoch", id, {
         ...e,
+        ...(confirmation ? { confirmation } : {}),
         status: "PUBLISHED",
         output,
         signature,

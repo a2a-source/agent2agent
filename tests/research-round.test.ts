@@ -1,3 +1,4 @@
+import { Confirmations, verifyPublishedEpoch } from "../src/confirmation.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
@@ -73,6 +74,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
     const proof = evidence("market", "https://example.com/market", now, {
       round,
     });
+    db.put("research-evidence", proof.id, { ...proof, data: { round } });
     const portfolio = portfolioSnapshot(
       [{ ...asset, quantity: qty, priceMicros: price, costMicros: null }],
       true,
@@ -376,6 +378,44 @@ test("three v2 rounds bind actual context, previous package, independent reports
         ),
         false,
       );
+      const published = epochs.get(epoch.id);
+      assert(verifyPublishedEpoch(config.chain.id, published));
+      assert.equal(published.confirmation!.votes.length, 3);
+      // Re-enter confirmation to test corruption after the candidate was frozen.
+      db.put("epoch", epoch.id, { ...published, status: "RUNNING" });
+      const book = new Confirmations(db);
+      const evidenceId = out.context.evidence[0]!.id,
+        storedEvidence = db.get<any>("research-evidence", evidenceId);
+      db.put("research-evidence", evidenceId, {
+        ...storedEvidence,
+        data: { corrupted: true },
+      });
+      assert.throws(
+        () => book.intent(epoch, epoch.master),
+        /evidence hash changed/,
+      );
+      db.put("research-evidence", evidenceId, storedEvidence);
+      const reportKey = `${epoch.id}:report:${out.reports[0]!.role}`,
+        storedReport = db.get<any>("report", reportKey);
+      db.put("report", reportKey, {
+        ...storedReport,
+        report: { ...storedReport.report, summary: "corrupted" },
+      });
+      assert.throws(
+        () => book.intent(epoch, epoch.master),
+        /stored report changed/,
+      );
+      db.put("report", reportKey, storedReport);
+      if (out.context.previous) {
+        const previous = epochs.get(out.context.previous.epoch);
+        db.put("epoch", previous.id, { ...previous, signature: "0x" });
+        assert.throws(() => book.intent(epoch, epoch.master), /previous QSP/);
+        db.put("epoch", previous.id, { ...previous, confirmation: undefined });
+        assert.throws(() => book.intent(epoch, epoch.master), /previous QSP/);
+        db.put("epoch", previous.id, previous);
+      }
+      book.certificate(epoch);
+      db.put("epoch", epoch.id, published);
       prior = out;
     }
     assert.equal(requests, 33);

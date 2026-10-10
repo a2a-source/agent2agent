@@ -1,3 +1,4 @@
+import { verifyPublishedEpoch } from "../src/confirmation.js";
 import { AgentRuntime } from "../src/agent-runtime.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -95,6 +96,8 @@ test("three hosted agents finish six research roles with actual compatible HTTP 
     assert.equal(qsp.signals.length, 0);
     assert.equal(epochs.get(epoch.id).status, "PUBLISHED");
     assert.equal(db.all("llm-call").length, 8);
+    assert.equal(epochs.get(epoch.id).confirmation!.votes.length, 3);
+    assert(verifyPublishedEpoch(config.chain.id, epochs.get(epoch.id)));
     assert.ok(
       verifyQsp(
         config.chain.id,
@@ -185,7 +188,13 @@ test("healthy successor completes after old Master is quarantined; late provider
     );
     agents.update(first.master, { jailed: true });
     const next = epochs.takeover(first.id, 0, Date.now());
+    const secondUnavailable = next.committee.find(
+      (c) => c.id !== first.master && c.id !== next.master,
+    )!;
+    agents.update(secondUnavailable.id, { jailed: true });
     const result = await runner.run(next);
+    assert.equal(epochs.get(next.id).confirmation!.votes.length, 5);
+    assert(verifyPublishedEpoch(config.chain.id, epochs.get(next.id)));
     assert.equal(result.master, next.master);
     assert.ok(result.reports.every((r) => r.agent !== first.master));
     const revoked = epochs.open(1, runner.candidates(), config.network);

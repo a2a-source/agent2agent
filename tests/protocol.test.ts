@@ -36,6 +36,9 @@ test("epoch CAS takeover fences old master and restart retains one final output"
     { termSlots: 7, committeeSize: 7, timeoutMs: 1000 },
     0,
   );
+  // Explicit historical fixture: pre-confirmation epochs retain their legacy CAS semantics.
+  delete e.confirmationRequired;
+  db.put("epoch", e.id, e);
   assert.throws(() => epochs.takeover(e.id, 0, 999), /deadline/);
   const next = epochs.takeover(e.id, 0, 1001);
   assert.equal(next.view, 1);

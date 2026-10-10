@@ -216,3 +216,12 @@ Each round binds an immutable snapshot and the preceding published QSP hash. Cro
 For on-demand multi-interval closed OHLCV candles, the market specialist has `market_klines`. The same adapter runs via `npm run market:klines -- BTCUSDT 1h 30`; see [parameters and limitations](agents.md#trend-analysis-candle-tool).
 
 See [release verification and contract boundaries](release.md) for clean runtime installation, CLI deployment rehearsal, dependency isolation and funds-contract limitations.
+
+
+## Committee confirmation configuration
+
+`confirmation.timeoutMs` (default `60000`) bounds confirmation after research has produced a signed candidate. It is separate from `network.timeoutMs`, which governs a research coordinator's deadline. QSP v2 validity can shorten the confirmation window. No additional LLM request is made to confirm a package.
+
+New published epoch envelopes include a committee certificate. Keep the whole envelope when exporting research. Use `verifyPublishedEpoch` from `src/confirmation.ts` to check the original proposer and the required certificate against the stored committee; do not use only `verifyQsp` as proof of committee approval. The snapshot must itself be trusted. See [protocol rules and hosted trust boundary](protocol.md#committee-confirmation).
+
+A missing signer leaves the round pending for automatic retry. The threshold stays strictly above two thirds; in a three-node committee all three signatures are required. Master replacement resumes the same candidate and preserves its original expiry. If the round cannot confirm in time it fails automatically; the scheduler can start the next eligible round. Pending confirmation is independent of LLM-provider and pricing availability. A confirmed QSP remains a research proposal with `executed: false`.

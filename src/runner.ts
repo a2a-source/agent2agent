@@ -1,3 +1,4 @@
+import { Confirmations, ConfirmationPending } from "./confirmation.js";
 import { buildResearchPackage } from "./research-round.js";
 import { verifiedDataAt, evidenceMissing } from "./provenance.js";
 import {
@@ -148,6 +149,10 @@ export class Runner {
       const current = this.epochs.get(epoch.id);
       if (current.view !== epoch.view || current.status !== "RUNNING")
         throw Error("stale epoch");
+      if (new Confirmations(this.agents.db).proposal(epoch.id)) {
+        clearTimeout(timer);
+        return await this.confirm(epoch, controller);
+      }
       if (current.configHash !== hash(this.config.network)) {
         // EpochConfig is the complete network configuration at runtime, including role-independent timing.
         if (
@@ -194,7 +199,9 @@ export class Runner {
           fence,
           signal: controller.signal,
         });
-        return await this.publish(epoch, output, controller);
+        return await this.publish(epoch, output, controller, () =>
+          clearTimeout(timer),
+        );
       }
       const plan = await tasks.execute(
         `${runId}:plan`,
@@ -406,13 +413,16 @@ export class Runner {
         )
       )
         throw Error("research data expired");
-      return await this.publish(epoch, output, controller);
-    } catch (e) {
-      this.epochs.incident(
-        `${runId}:failure`,
-        epoch.master,
-        classifyResearchFailure(e),
+      return await this.publish(epoch, output, controller, () =>
+        clearTimeout(timer),
       );
+    } catch (e) {
+      if (!new Confirmations(this.agents.db).proposal(epoch.id))
+        this.epochs.incident(
+          `${runId}:failure`,
+          epoch.master,
+          classifyResearchFailure(e),
+        );
       throw e;
     } finally {
       clearTimeout(timer);
@@ -424,6 +434,7 @@ export class Runner {
     epoch: Epoch,
     output: T,
     controller: AbortController,
+    beginConfirmation: () => void,
   ) {
     const wallet = this.agents.db.get<EncryptedWallet>("wallet", epoch.master)!;
     if (controller.signal.aborted || Date.now() >= epoch.deadline)
@@ -450,7 +461,85 @@ export class Runner {
     if (!verifyQsp(this.config.chain.id, output, signature, wallet.address))
       throw Error("signature verification failed");
     this.assertActive(epoch.master);
-    this.epochs.publish(epoch.id, epoch.view, epoch.master, output, signature);
-    return output;
+    if (!epoch.confirmationRequired) {
+      this.epochs.publish(
+        epoch.id,
+        epoch.view,
+        epoch.master,
+        output,
+        signature,
+      );
+      return output;
+    }
+    const version = this.agents.db.get<{ version: string }>(
+      "run-config",
+      epoch.id,
+    )!.version;
+    new Confirmations(this.agents.db).freeze(epoch, output, signature, {
+      chainId: this.config.chain.id,
+      timeoutMs: this.config.confirmation.timeoutMs,
+      roles: this.config.roles.map((r) => r.id),
+      expectedConfigHash: hash({
+        network: epoch.configHash,
+        research: version,
+      }),
+      toolsEnabled: this.config.agent.toolsEnabled,
+      templatesHash: hash(this.config.reportTemplates),
+      recordVersion: version,
+    });
+    beginConfirmation();
+    return await this.confirm(this.epochs.get(epoch.id), controller);
+  }
+  private async confirm(epoch: Epoch, controller: AbortController) {
+    const db = this.agents.db,
+      book = new Confirmations(db),
+      proposal = book.proposal(epoch.id)!;
+    const fence = () => {
+      const live = this.epochs.get(epoch.id);
+      if (
+        controller.signal.aborted ||
+        live.status !== "RUNNING" ||
+        live.view !== epoch.view ||
+        live.master !== epoch.master ||
+        Date.now() >= live.deadline
+      )
+        throw new ConfirmationPending(
+          "confirmation coordinator superseded or expired",
+        );
+    };
+    for (const member of epoch.committee) {
+      fence();
+      if (db.get("confirmation-vote", `${epoch.id}:${member.id}`)) continue;
+      try {
+        this.assertActive(member.id);
+        const wallet = db.get<EncryptedWallet>("wallet", member.id);
+        if (
+          !wallet ||
+          wallet.address.toLowerCase() !== member.wallet.toLowerCase()
+        )
+          throw Error("committee wallet unavailable");
+        const message = book.intent(epoch, member.id);
+        const signature = await this.agents.vault.withWallet(wallet, (w) =>
+          w.signMessage(message),
+        );
+        fence();
+        this.assertActive(member.id);
+        book.vote(epoch, member.id, signature);
+      } catch {
+        db.put("confirmation-retry", `${epoch.id}:${member.id}`, {
+          at: Date.now(),
+          reason: "VOTE_UNAVAILABLE_OR_VALIDATION_FAILED",
+        });
+      }
+    }
+    fence();
+    this.epochs.publish(
+      epoch.id,
+      epoch.view,
+      epoch.master,
+      proposal.output,
+      proposal.signature,
+    );
+    return qspSchema.parse(proposal.output);
   }
 }
