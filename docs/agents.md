@@ -91,10 +91,13 @@ Master and specialist business prompts live in [config/default.json](../config/d
 | `roles[].id`, `roles[].prompt` | Role identity and research responsibilities                      |
 | `llm.endpoint`, `llm.model`    | OpenRouter or another compatible endpoint, and model selection   |
 | `llm.apiKeyFile`               | Local credential file path; credentials are not committed        |
+| `agent.finalOutputMode`        | Final answer transport: `text` (default) or explicit `tool`       |
 | `agent.toolsEnabled`           | Enable tools for specialist research                             |
 | `agent.maxToolRounds`          | Tool-loop limit per task; default 10                             |
 | `agent.maxToolCalls`           | Total tool-call limit per task; default 20                       |
 | `research.*`                   | Wallet, RPC, assets, accounting input, risk and freshness limits |
+
+Tool mode requires a supplied output schema and uses LangChain [`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) with `handleError: false`. Research tools and the reserved `a2a_final_output` tool share the model loop; the final allowed model call offers only that output tool and forces its selection. The output tool is not an external research call. Default limits remain 10 research rounds, 20 research tool calls and 11 billed model requests per task. Tool mode does not send provider `response_format`, repair malformed JSON, retry invalid structured output or fall back to text. Schema, authority and provenance checks still apply. The mode and schema are persisted and hashed, so changing mode cannot reuse an existing task result.
 
 The checked-in model setting is `openai/gpt-6.1-sol`; availability depends on the connected provider. Free models can be selected in local configuration and are not the repository default. The chosen model must support the tool calling and structured JSON output required by its tasks.
 

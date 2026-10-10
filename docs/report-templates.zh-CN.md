@@ -28,6 +28,8 @@ K 线工具提供可复核的收益、均线及时间窗口；网页工具优先
 
 模型输入中的初始新闻逐条标注 `HEADLINE_ONLY`。链上角色的初始上下文不注入这些未核验标题，优先分析池子、流动性与资产机制；仍可通过工具主动获取来源。新闻角色负责事件检索，Master 综合审阅。此输入裁剪不修改已冻结的原始上下文或证据。Master 同时收到通过决策 schema 验证的完整根对象示例，避免将交易字段误填进汇报章节。
 
+默认 `agent.finalOutputMode: "text"` 使用下述行为。显式 `"tool"` 模式改用 LangChain `toolStrategy`（`handleError: false`）承载传入的 schema，只读取框架 `structuredResponse`，不发送 provider `response_format`。无效或多个输出直接失败，不增加修复调用，不回退文本；本地报告校验仍然执行。详见 [Agent 输出模式](agents.zh-CN.md#prompt-与配置)。
+
 `llm.structuredOutputs` 在默认配置中启用：Master 无工具汇总，以及研究角色耗尽工具轮次后的无工具输出，会发送严格 JSON Schema。正常 ReAct 工具阶段不发送最终报告 Schema，避免部分供应商因此跳过工具。角色提前结束调研时仍由本地 schema、章节和证据校验把关。OpenRouter 请求要求路由支持所用参数；其他兼容接口不接收 OpenRouter 专属路由字段。不支持结构输出的 endpoint 可显式设为 `false`；系统不会在失败后悄悄降级。参见 [OpenRouter 结构输出文档](https://openrouter.ai/docs/guides/features/structured-outputs)。结构约束不能保证结论正确。
 
 新闻来源校验针对标准新闻行中明确的 `status=FULL_TEXT` 字段：必须保留发现时的原标题、匹配抓取页面的标题、取得非空且未识别为验证页的正文，并在 `publisherUrl` 和 `evidenceRefs` 中引用实际落地 URL。已发现的标题可通过精确标题 `web_search` 补查原文。`fetch_page` 返回 `requestedUrl`、`finalUrl` 和 `pageTitle`，记录重定向后的实际来源。标题匹配采用保守规则，可能拒绝真实文章；无法建立对应关系时使用 `HEADLINE_ONLY`。这些检查不验证任意自然语言陈述、所有访问拦截页面、文章完整性或发布方的事实真实性。

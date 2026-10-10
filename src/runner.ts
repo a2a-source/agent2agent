@@ -1,3 +1,4 @@
+import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { Confirmations, ConfirmationPending } from "./confirmation.js";
 import { terminalTiming } from "./cadence.js";
 import { buildResearchPackage } from "./research-round.js";
@@ -12,6 +13,7 @@ import { z } from "zod";
 import {
   ResearchTasks,
   balancedAssignments,
+  assignmentSchema,
   classifyResearchFailure,
   type ResearchOptions,
 } from "./tasks.js";
@@ -100,6 +102,8 @@ export class Runner {
     const tasks = new ResearchTasks(this.agents.db, {
       ...this.recovery,
       resumable: !!this.react,
+      epoch: epoch.id,
+      view: epoch.view,
     });
     const fence = () => {
       const live = this.epochs.get(epoch.id);
@@ -225,6 +229,11 @@ export class Runner {
               roles: roles.map((r) => r.id),
               workers: workers.map((w) => w.id),
             }),
+            [],
+            undefined,
+            this.config.agent.finalOutputMode === "tool"
+              ? toJsonSchema(assignmentSchema)
+              : undefined,
           ),
         { version, workers: workers.map((w) => w.id) },
       );
@@ -317,6 +326,9 @@ export class Runner {
                 }),
                 this.config.agent.toolsEnabled ? researchTools() : [],
                 observations,
+                this.config.agent.finalOutputMode === "tool"
+                  ? toJsonSchema(reportSchema)
+                  : undefined,
               );
               const parsed = reportSchema.parse(raw);
               const toolSources = observations.flatMap((o) =>
@@ -376,6 +388,11 @@ export class Runner {
                 task: "Return JSON {signals:[{chainId,asset,action,allocationBps,rationale,evidence:string[]}],risks:string[]}. Evidence lists report role IDs. No signals without fresh configured market-data sources; web/news citations alone are research only. Return empty signals when data is absent.",
                 reports,
               }),
+              [],
+              undefined,
+              this.config.agent.finalOutputMode === "tool"
+                ? toJsonSchema(synthesisSchema)
+                : undefined,
             ),
           );
           for (const signal of parsed.signals)

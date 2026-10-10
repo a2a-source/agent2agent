@@ -4,14 +4,16 @@ import { Store } from "../src/store.js";
 import { ResearchTasks } from "../src/tasks.js";
 test("bounded validation feedback survives restart without leaking error text", async () => {
   const db = new Store(":memory:");
-  const t = new ResearchTasks(db, { maxAttempts: 1 });
+  const t = new ResearchTasks(db, { maxAttempts: 2 });
   let count = 0;
   await assert.rejects(
     t.execute(
       "r",
       ["a"],
       Date.now() + 10000,
-      () => {},
+      () => {
+        if (count) throw Error("runtime stopped between attempts");
+      },
       async () => {
         count++;
         throw Error("signal exceeds risk policy secret-key");

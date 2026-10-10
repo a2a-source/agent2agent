@@ -76,6 +76,7 @@ const schema = z.object({
     jailMs: integer,
   }),
   agent: z.object({
+    finalOutputMode: z.enum(["text", "tool"]).default("text"),
     maxToolRounds: integer.max(20),
     maxToolCalls: integer.max(100),
     toolsEnabled: z.boolean(),

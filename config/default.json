@@ -105,6 +105,7 @@
     "intervalMs": 60000
   },
   "agent": {
+    "finalOutputMode": "text",
     "maxToolRounds": 10,
     "maxToolCalls": 20,
     "toolsEnabled": true

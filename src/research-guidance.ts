@@ -254,7 +254,7 @@ export function validateNewsBodyClaims(
 
   for (const line of section.content.split(/\r?\n/)) {
     const row =
-      /^\s*(?:[-*]\s*)?asset=(BTCB|ETH|WBNB);\s*status=(FULL_TEXT|HEADLINE_ONLY)\s*;\s*headline=(.+?);\s*publishedAt=[^;]+;\s*publisherUrl=(https?:\/\/[^\s;]+);\s*relevance=.+$/i.exec(
+      /^\s*(?:[-*]\s*)?asset=([A-Z0-9]{2,12});\s*status=(FULL_TEXT|HEADLINE_ONLY)\s*;\s*headline=(.+?);\s*publishedAt=[^;]+;\s*publisherUrl=(https?:\/\/[^\s;]+);\s*relevance=.+$/i.exec(
         line,
       );
     if (!row) {
@@ -264,9 +264,9 @@ export function validateNewsBodyClaims(
     }
     // The status field is authoritative; titles and commentary are not statuses.
     if (row[2]!.toUpperCase() === "FULL_TEXT") {
-      if (!row[3]!.trim())
+      if (!/^[A-Z0-9]{2,12}$/.test(row[1]!) || !row[3]!.trim())
         throw Error("news FULL_TEXT claim lacks a source-bound asset row");
-      const asset = row[1]!.toUpperCase(),
+      const asset = row[1]!,
         headline = row[3]!.trim(),
         url = canonicalNewsUrl(row[4]!);
       if (!isPublisherUrl(url) || !section.evidenceRefs.includes(url))

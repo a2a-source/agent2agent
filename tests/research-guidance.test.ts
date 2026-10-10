@@ -4,6 +4,11 @@ import { toolEvidenceBrief } from "../src/research-guidance.js";
 import { evidence, normalizeEvidence } from "../src/research-context.js";
 import { Store } from "../src/store.js";
 import { hash } from "../src/protocol.js";
+import { readFileSync } from "node:fs";
+import {
+  templateSchema,
+  validateReportSections,
+} from "../src/report-templates.js";
 test("Master receives hash-bound tool facts and missing results, never unbounded output", () => {
   const db = new Store(":memory:");
   try {
@@ -480,4 +485,26 @@ test("Master brief prioritizes late fetched bodies over discovery headlines", ()
   });
   assert(toolEvidenceBrief(db, proofs).some((e) => e.tool === "fetch_page"));
   db.close();
+});
+
+test("news context facts require a frozen evidence ID, not a context.facts reference", () => {
+  const template = templateSchema.parse(
+    JSON.parse(readFileSync("config/report-templates.json", "utf8")).news,
+  );
+  const sections = template.sections.map(({ id }) => ({
+    id,
+    content: "Observed context; article verification remains limited.",
+    evidenceRefs: ["E1"],
+  }));
+  const allowed = new Set(["E1"]);
+  assert.doesNotThrow(() =>
+    validateReportSections(template, sections, allowed),
+  );
+  sections.find(({ id }) => id === "limitations")!.evidenceRefs = [
+    "context.facts",
+  ];
+  assert.throws(
+    () => validateReportSections(template, sections, allowed),
+    /fabricated evidence/,
+  );
 });

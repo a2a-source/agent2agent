@@ -1,6 +1,12 @@
-import { ZodError } from "zod";
+import {
+  MiddlewareError,
+  MultipleStructuredOutputsError,
+  StructuredOutputParsingError,
+} from "langchain";
+import { z, ZodError } from "zod";
 import { hash } from "./protocol.js";
 import { Store } from "./store.js";
+import { closure, type ResearchTask } from "./research-task-state.js";
 export interface ResearchFeedback {
   code: string;
   instruction: string;
@@ -141,9 +147,24 @@ export class ResearchTaskError extends Error {
 }
 export function classifyResearchFailure(error: unknown): ResearchFailure {
   if (error instanceof ResearchTaskError) return error.failure;
+  // The installed agent middleware wraps structured-output validation failures.
+  // Use their types before generic provider/data message heuristics: schema
+  // property names may themselves contain words such as "source" or "provider".
+  if (error instanceof MiddlewareError && error.cause)
+    return classifyResearchFailure(error.cause);
+  if (
+    error instanceof StructuredOutputParsingError ||
+    error instanceof MultipleStructuredOutputsError
+  )
+    return "INVALID_OUTPUT";
   if (error instanceof SyntaxError || (error as any)?.name === "ZodError")
     return "INVALID_OUTPUT";
   const message = error instanceof Error ? error.message : String(error);
+  if (
+    message === "Agent final output tool arguments invalid JSON" ||
+    message === "Agent final structured response unavailable"
+  )
+    return "INVALID_OUTPUT";
   // Journal-backed transport failures must advance to a new bounded attempt,
   // never replay an uncertain tool identity or penalize a research Worker.
   if (
@@ -172,6 +193,23 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
     return "INVALID_OUTPUT";
   return "PLATFORM";
 }
+// Structural bounds only: membership, completeness and balance remain the
+// responsibility of balancedAssignments and its deterministic fallback.
+export const assignmentSchema = z
+  .object({
+    assignments: z
+      .array(
+        z
+          .object({
+            role: z.string().max(32),
+            agent: z.string().max(128),
+          })
+          .strict(),
+      )
+      .max(24),
+  })
+  .strict();
+
 export function balancedAssignments(
   raw: unknown,
   roles: string[],
@@ -206,6 +244,10 @@ export function balancedAssignments(
   };
 }
 interface Attempt {
+  taskId?: string;
+  attempt?: number;
+  startedAt?: number;
+  finishedAt?: number;
   id: string;
   agent: string;
   status: "RUNNING" | "DONE" | "FAILED";
@@ -215,6 +257,8 @@ interface Attempt {
   feedback?: ResearchFeedback;
 }
 export interface ResearchOptions {
+  epoch?: string;
+  view?: number;
   resumable?: boolean;
   concurrency?: number;
   maxAttempts?: number;
@@ -225,7 +269,7 @@ export class ResearchTasks {
   readonly resumable: boolean;
   constructor(
     readonly db: Store,
-    options: ResearchOptions = {},
+    readonly options: ResearchOptions = {},
   ) {
     this.resumable = options.resumable ?? false;
     this.concurrency = Math.min(
@@ -275,72 +319,202 @@ export class ResearchTasks {
     context: unknown = key,
   ): Promise<T> {
     const contextHash = hash({ workers, context });
+    let task = this.db.get<ResearchTask>("research-task", key);
+    if (
+      task &&
+      (task.contextHash !== contextHash ||
+        task.epoch !== this.options.epoch ||
+        task.view !== this.options.view)
+    )
+      throw Error("research task context conflict");
+    if (!task) {
+      task = {
+        id: key,
+        version: 1,
+        epoch: this.options.epoch,
+        view: this.options.view,
+        contextHash,
+        workers: [...workers],
+        maxAttempts: this.maxAttempts,
+        deadline,
+        status: "ACTIVE",
+        startedAt: Date.now(),
+      };
+      this.db.insert("research-task", key, task);
+    }
+    deadline = task.deadline;
+    workers = task.workers;
+    const finish = (
+      status: "DONE" | "FAILED",
+      at: number,
+      reason?: string,
+      resultAttemptId?: string,
+    ) => {
+      const live = this.db.get<ResearchTask>("research-task", key)!;
+      if (live.status !== "ACTIVE") {
+        if (live.status !== status)
+          throw Error("research task already terminal");
+        return;
+      }
+      this.db.put("research-task", key, {
+        ...live,
+        status,
+        finishedAt: at,
+        terminalReason: reason,
+        resultAttemptId,
+      });
+    };
+    const check = () => {
+      try {
+        fence();
+        if (Date.now() >= deadline) throw Error("epoch deadline expired");
+        if (
+          this.db.get<ResearchTask>("research-task", key)?.status === "FAILED"
+        )
+          throw Error("research task already terminal");
+      } catch (error) {
+        const stop = closure(this.db, task!, Date.now());
+        if (stop) finish("FAILED", stop.at ?? Date.now(), stop.reason);
+        throw error;
+      }
+    };
+    if (task.status === "FAILED") {
+      const failures: ResearchFailure[] = [
+        "PLATFORM",
+        "PROVIDER",
+        "DATA",
+        "WORKER",
+        "INVALID_OUTPUT",
+      ];
+      const reason = task.terminalReason as ResearchFailure;
+      const final = this.db.get<Attempt>(
+        "research-attempt",
+        `${key}:attempt:${task.maxAttempts - 1}`,
+      );
+      throw new ResearchTaskError(
+        failures.includes(reason) ? reason : (final?.failure ?? "PLATFORM"),
+      );
+    }
     let last: unknown = Error("research attempts exhausted");
     let feedback: ResearchFeedback | undefined;
-    for (let i = 0; i < this.maxAttempts; i++) {
-      fence();
-      if (Date.now() >= deadline) throw Error("epoch deadline expired");
-      const id = `${key}:attempt:${i}`,
-        prior = this.db.get<Attempt>("research-attempt", id);
+    // Legacy completion may predate a reduced retry configuration. Discover
+    // every anchored identity without increasing the frozen dispatch allowance.
+    // Also reuse that result on subsequent replay of the adopted DONE task.
+    const existing = this.db
+      .all<Attempt>("research-attempt")
+      .filter((attempt) => {
+        const identity = /^(.*):attempt:(0|[1-9]\d*)$/.exec(attempt.id);
+        return (
+          identity?.[1] === key &&
+          (attempt.taskId === undefined || attempt.taskId === key)
+        );
+      })
+      .sort(
+        (a, b) =>
+          Number(a.id.slice(a.id.lastIndexOf(":") + 1)) -
+          Number(b.id.slice(b.id.lastIndexOf(":") + 1)),
+      );
+    for (const prior of existing) {
       if (prior?.contextHash && prior.contextHash !== contextHash)
         throw Error("research attempt context conflict");
       if (prior?.status === "DONE") {
+        check();
         if (!workers.includes(prior.agent))
           throw Error("research attempt author unavailable");
         if (!prior.contextHash)
           throw Error("research attempt context unavailable");
+        this.db.transaction(() =>
+          finish("DONE", prior.finishedAt ?? Date.now(), undefined, prior.id),
+        );
         return prior.result as T;
       }
-      // Only a ledger-backed framework may safely replay an interrupted identity.
+    }
+    for (let i = 0; i < task.maxAttempts; i++) {
+      check();
+      const id = `${key}:attempt:${i}`,
+        prior = this.db.get<Attempt>("research-attempt", id);
       const resume =
         this.resumable &&
         prior?.status === "RUNNING" &&
         prior.contextHash === contextHash &&
         workers.includes(prior.agent);
       if (prior && !resume) {
-        if (prior.failure === "DATA" || prior.failure === "PLATFORM")
+        if (prior.failure === "DATA" || prior.failure === "PLATFORM") {
+          finish("FAILED", prior.finishedAt ?? Date.now(), prior.failure);
           throw new ResearchTaskError(prior.failure);
+        }
         feedback = prior.feedback;
         last = new ResearchTaskError(prior.failure ?? "PLATFORM");
         continue;
       }
       const agent = resume ? prior!.agent : workers[i % workers.length];
       if (!agent) throw Error("no healthy workers");
+      const base = {
+        id,
+        taskId: key,
+        attempt: i,
+        agent,
+        contextHash,
+        startedAt: prior?.startedAt ?? Date.now(),
+      };
       if (!resume)
-        this.db.insert("research-attempt", id, {
-          id,
-          agent,
-          contextHash,
-          status: "RUNNING",
-        });
+        this.db.insert("research-attempt", id, { ...base, status: "RUNNING" });
+      let result: T;
       try {
-        const result = await work(agent, id, feedback);
-        fence();
-        if (Date.now() >= deadline) throw Error("epoch deadline expired");
-        this.db.put("research-attempt", id, {
-          id,
-          agent,
-          contextHash,
-          status: "DONE",
-          result,
-        });
-        return result;
+        result = await work(agent, id, feedback);
       } catch (error) {
-        last = error;
+        // A stopped runtime may resume the journal-backed identity. Only a
+        // persisted ownership/deadline proof can make this interruption final.
         const failure = classifyResearchFailure(error);
+        try {
+          if (failure === "PLATFORM" || failure === "PROVIDER") check();
+        } catch (stopped) {
+          this.db.put("research-attempt", id, {
+            ...base,
+            status: "RUNNING",
+            failure: "PLATFORM",
+          });
+          throw stopped;
+        }
+        last = error;
         feedback =
           failure === "INVALID_OUTPUT" ? validationFeedback(error) : undefined;
-        this.db.put("research-attempt", id, {
-          id,
-          agent,
-          contextHash,
-          status: "FAILED",
-          failure,
-          feedback,
+        const at = Date.now();
+        this.db.transaction(() => {
+          this.db.put("research-attempt", id, {
+            ...base,
+            status: "FAILED",
+            failure,
+            feedback,
+            finishedAt: at,
+          });
+          if (
+            i === task!.maxAttempts - 1 ||
+            failure === "PLATFORM" ||
+            failure === "DATA"
+          )
+            finish("FAILED", at, failure);
         });
         if (failure === "PLATFORM" || failure === "DATA") throw error;
+        continue;
       }
+      // Fencing is outside output classification: stopping a runtime is not
+      // invalid output and cannot accept or terminalize a replayable result.
+      check();
+      this.db.transaction(() => {
+        check();
+        const at = Date.now();
+        this.db.put("research-attempt", id, {
+          ...base,
+          status: "DONE",
+          result,
+          finishedAt: at,
+        });
+        finish("DONE", at, undefined, id);
+      });
+      return result;
     }
+    finish("FAILED", Date.now(), "EXHAUSTED");
     throw last;
   }
 }

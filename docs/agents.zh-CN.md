@@ -91,10 +91,13 @@ Master 和六个角色的业务 Prompt 集中在独立于源码的 [config/defau
 | `roles[].id`、`roles[].prompt` | 角色身份与研究职责                           |
 | `llm.endpoint`、`llm.model`    | OpenRouter 或其他兼容 endpoint，以及模型选择 |
 | `llm.apiKeyFile`               | 本地凭据文件路径；凭据不提交到仓库           |
+| `agent.finalOutputMode`        | 最终输出方式：默认 `text`，可显式选择 `tool` |
 | `agent.toolsEnabled`           | 是否向研究角色提供工具                       |
 | `agent.maxToolRounds`          | 每个任务工具循环上限，默认 10 轮             |
 | `agent.maxToolCalls`           | 每个任务工具调用总数上限，默认 20 次         |
 | `research.*`                   | 研究钱包、RPC、资产、会计输入和风险/时效限制 |
+
+`tool` 模式要求传入输出 schema，使用 LangChain [`toolStrategy`](https://reference.langchain.com/javascript/langchain/index/toolStrategy) 并设置 `handleError: false`。研究工具与保留名称 `a2a_final_output` 的输出工具共用模型循环；最后一次允许的模型请求仅保留并强制选择输出工具。输出工具不计入外部研究调用。默认仍为 10 轮研究、20 次研究工具调用、最多 11 次计费模型请求。该模式不发送 provider `response_format`，不修复 JSON、不自动重试无效结构输出，也不回退到文本。结构、权限和证据溯源校验仍然执行。模式与 schema 持久化并参与哈希，切换模式不能复用旧任务结果。
 
 模型公开默认值是配置中的 `openai/gpt-6.1-sol`；实际可用性取决于所接 provider。免费模型可以通过本地配置选择，不是仓库默认值。模型需要支持任务所需的工具调用和结构化 JSON 输出。
 

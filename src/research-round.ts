@@ -6,7 +6,11 @@ import { hash, type Candidate } from "./protocol.js";
 import { Agents } from "./agents.js";
 import { Epochs, type Epoch } from "./epochs.js";
 import type { Config } from "./config.js";
-import { ResearchTasks, balancedAssignments } from "./tasks.js";
+import {
+  ResearchTasks,
+  balancedAssignments,
+  assignmentSchema,
+} from "./tasks.js";
 import type { Observation, ResearchTool } from "./agent-runtime.js";
 import { ResearchData, contextTools } from "./research-data.js";
 import {
@@ -145,6 +149,11 @@ export async function buildResearchPackage(p: {
           workers: workers.map((w) => w.id),
           context: promptContext,
         }),
+        [],
+        undefined,
+        config.agent.finalOutputMode === "tool"
+          ? toJsonSchema(assignmentSchema)
+          : undefined,
       ),
     { version, contextHash, workers },
   );

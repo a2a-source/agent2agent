@@ -167,18 +167,29 @@ test("operational quarantine recovers automatically after cooldown and health pr
       return a;
     },
   };
-  const penalties = new Penalties(agents, new Epochs(db), 97, 1, 100);
+  let now = 1000;
+  const penalties = new Penalties(
+    agents,
+    new Epochs(db),
+    97,
+    1,
+    100,
+    () => now,
+  );
   penalties.failure("first", "worker", 1000);
   db.put("quarantine", "evidence", {
     agent: "evidence",
     reason: "CONFLICTING_SIGNATURE",
     until: null,
   });
-  await penalties.recoverOperational(async () => true, 1050);
+  now = 1050;
+  await penalties.recoverOperational(async () => true, now);
   assert.equal(rows.get("worker")!.jailed, true);
-  await penalties.recoverOperational(async () => false, 1200);
+  now = 1200;
+  await penalties.recoverOperational(async () => false, now);
   assert.equal(rows.get("worker")!.jailed, true);
-  await penalties.recoverOperational(async () => true, 1300);
+  now = 1300;
+  await penalties.recoverOperational(async () => true, now);
   assert.equal(rows.get("worker")!.jailed, false);
   assert.equal(rows.get("evidence")!.jailed, true);
   assert.equal(db.get<any>("quarantine", "worker").automatic, true);
