@@ -183,7 +183,7 @@ export function planWallet(input: unknown, now: number) {
     items,
     requiredBeforeExecution: [
       "SIGNED_WALLET_APPLICABLE_STRATEGY",
-      "WALLET_AUTHORIZATION",
+      "ELIGIBLE_WORKER_AND_PROTOCOL_POLICY",
       "FRESH_CANONICAL_BALANCES",
       "MACHINE_CHECKABLE_CONDITIONS",
       "DEX_QUOTE_AND_SLIPPAGE",

@@ -135,5 +135,16 @@
         "marketSymbol": "BNBUSDT"
       }
     ]
+  },
+  "investmentRisk": {
+    "maxVolatileBps": 6000,
+    "maxUnderlyingBps": 2000,
+    "maxOrderBuyBps": 1000,
+    "maxCycleBuyBps": 1000,
+    "minTradeMicros": "10000000",
+    "maxGasBps": 50,
+    "maxSlippageBps": 50,
+    "maxPriceImpactBps": 50,
+    "quoteMaxAgeMs": 30000
   }
 }

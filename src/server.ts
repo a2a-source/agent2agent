@@ -1,3 +1,4 @@
+import type { PerformanceLedger } from "./performance-ledger.js";
 import { createServer, type IncomingMessage } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
@@ -16,6 +17,7 @@ interface Services {
   watcher?: Watcher;
   launcher?: FlapLauncher;
   penalties?: Penalties;
+  performance?: PerformanceLedger;
   tick?: () => Promise<void>;
   minimumCompute?: bigint | (() => bigint | undefined);
   stateMaxAgeMs?: number;
@@ -131,7 +133,7 @@ export function createApi(s: Services) {
         return;
       }
       const match = path.match(
-        /^\/agents\/([^/]+)(?:\/(exit|withdraw|launch))?$/,
+        /^\/agents\/([^/]+)(?:\/(exit|withdraw|launch|performance))?$/,
       );
       if (match) {
         let a;
@@ -147,6 +149,37 @@ export function createApi(s: Services) {
         }
         if (!match[2] && req.method === "GET") {
           send(200, present(a));
+          return;
+        }
+        if (req.method === "GET" && match[2] === "performance") {
+          if (!s.performance) {
+            send(503, { error: "performance accounting unavailable" });
+            return;
+          }
+          send(
+            200,
+            s.performance
+              .list()
+              .filter((r) => r.agents.some((x) => x.agentId === a.id))
+              .sort(
+                (a, b) =>
+                  a.windowEndMs - b.windowEndMs ||
+                  a.revision - b.revision ||
+                  a.roundId.localeCompare(b.roundId),
+              )
+              .slice(-100)
+              .map((r) => ({
+                roundId: r.roundId,
+                chainId: r.chainId,
+                currency: r.currency,
+                windowStartMs: r.windowStartMs,
+                windowEndMs: r.windowEndMs,
+                revision: r.revision,
+                revisionHash: r.revisionHash,
+                supersedes: r.supersedes,
+                agent: r.agents.find((x) => x.agentId === a.id),
+              })),
+          );
           return;
         }
         if (req.method === "POST" && match[2] === "launch") {
@@ -169,6 +202,36 @@ export function createApi(s: Services) {
           send(202, { hash: tx.hash, state: tx.state });
           return;
         }
+      }
+      if (path === "/network/performance" && req.method === "GET") {
+        if (!s.performance) {
+          send(503, { error: "performance accounting unavailable" });
+          return;
+        }
+        const latest = new Map(
+          s.performance.list().map((r) => [`${r.chainId}:${r.roundId}`, r]),
+        );
+        send(
+          200,
+          [...latest.values()]
+            .sort(
+              (a, b) =>
+                a.windowEndMs - b.windowEndMs ||
+                a.roundId.localeCompare(b.roundId),
+            )
+            .slice(-100)
+            .map((r) => ({
+              roundId: r.roundId,
+              chainId: r.chainId,
+              currency: r.currency,
+              windowStartMs: r.windowStartMs,
+              windowEndMs: r.windowEndMs,
+              revision: r.revision,
+              revisionHash: r.revisionHash,
+              network: r.network,
+            })),
+        );
+        return;
       }
       if (path === "/network/epochs" && req.method === "GET") {
         send(200, s.agents.db.all("epoch"));

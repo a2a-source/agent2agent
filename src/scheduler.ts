@@ -29,6 +29,7 @@ export class Scheduler {
     readonly launcher?: FlapLauncher,
     readonly maintenance?: WalletMaintenance,
     readonly settlement?: TaxSettlement,
+    readonly accounting?: { tick(): void | Promise<void> },
   ) {}
   async tick() {
     if (this.busy || this.stopped) return;
@@ -38,6 +39,20 @@ export class Scheduler {
     });
     try {
       const db = this.runner.agents.db;
+      if (this.accounting) {
+        try {
+          await this.accounting.tick();
+          db.put("service-error", "performance-accounting", {
+            status: "HEALTHY",
+          });
+        } catch {
+          db.put("service-error", "performance-accounting", {
+            at: Date.now(),
+            reason: "ACCOUNTING_RETRY_PENDING",
+          });
+        }
+      }
+      if (this.stopped) return;
       if (this.watcher) {
         try {
           await this.watcher.journal.recover(this.watcher.confirmations);
@@ -185,8 +200,17 @@ export class Scheduler {
               : "ROUND_FAILED_WAITING_FOR_TAKEOVER",
           });
         })
-        .finally(() => {
-          this.runTask = undefined;
+        .finally(async () => {
+          try {
+            await this.accounting?.tick();
+          } catch {
+            db.put("service-error", "performance-accounting", {
+              at: Date.now(),
+              reason: "ACCOUNTING_RETRY_PENDING",
+            });
+          } finally {
+            this.runTask = undefined;
+          }
         });
     } finally {
       this.busy = false;

@@ -1,3 +1,4 @@
+import { PerformanceLedger } from "../src/performance-ledger.js";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
@@ -22,6 +23,7 @@ test("HTTP user identity cannot be forged and another owner cannot read or mutat
     agents,
     budget: new Budget(db),
     epochs: new Epochs(db),
+    performance: new PerformanceLedger(db),
     adminToken: "admin-token-long-enough-for-tests",
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
@@ -50,6 +52,56 @@ test("HTTP user identity cannot be forged and another owner cannot read or mutat
     assert.equal(created.status, 201);
     const agent = (await created.json()) as any;
     assert.equal((await req(`/agents/${agent.id}`, bob.token)).status, 404);
+    assert.equal(
+      (await req(`/agents/${agent.id}/performance`, bob.token)).status,
+      404,
+    );
+    new PerformanceLedger(db).recordRound({
+      version: "performance-input/1",
+      currency: "micro-USDT",
+      roundId: "round1",
+      chainId: 56,
+      windowStartMs: 1,
+      windowEndMs: 2,
+      observedAt: 3,
+      roster: [{ agentId: agent.id, wallet: agent.wallet }],
+      perAgent: [],
+    });
+    const performanceResponse = await req(
+      `/agents/${agent.id}/performance`,
+      alice.token,
+    );
+    assert.equal(performanceResponse.status, 200);
+    const history: any = await performanceResponse.json();
+    assert.equal(history.length, 1);
+    assert.equal(history[0].agent.periodPnL, null);
+    const aggregate = await req("/network/performance", alice.token);
+    assert.equal(aggregate.status, 200);
+    const summary: any = await aggregate.json();
+    assert.equal(summary[0].network.periodPnL, null);
+    assert.equal(JSON.stringify(summary).includes(agent.wallet), false);
+    for (let i = 0; i < 110; i++)
+      new PerformanceLedger(db).recordRound({
+        version: "performance-input/1",
+        currency: "micro-USDT",
+        roundId: String(i),
+        chainId: 56,
+        windowStartMs: 1000 + i,
+        windowEndMs: 1001 + i,
+        observedAt: 2000,
+        roster: [{ agentId: agent.id, wallet: agent.wallet }],
+        perAgent: [],
+      });
+    for (const path of [
+      "/network/performance",
+      `/agents/${agent.id}/performance`,
+    ]) {
+      const recent: any = await (await req(path, alice.token)).json();
+      assert.equal(recent.length, 100);
+      assert.equal(recent[0].roundId, "10");
+      assert.equal(recent.at(-1).roundId, "109");
+    }
+
     assert.equal(
       (await req(`/agents/${agent.id}/exit`, bob.token, "POST", {})).status,
       404,

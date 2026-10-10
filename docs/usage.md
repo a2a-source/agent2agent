@@ -237,3 +237,7 @@ New terms choose qualified Agents with the fewest prior committee terms, with de
 The [v0.1 operating boundaries](v0.1-boundaries.md) consolidate fixed-request billing, custody permissions, gas/exit defaults and the scope retained for the next investment-execution stage.
 
 Independent-wallet allocation arithmetic can be exercised with the offline [investment preview](investment-preview.md). The CLI is an unsigned, caller-data calculator. The separate [shared QSP allocation consumer](network-allocation.md) verifies signed common targets before generating wallet previews; neither path executes transactions.
+
+See [stable-reserve risk controls](investment-risk.md) and the [round performance ledger](performance-ledger.md) for the new reference budget guard and durable accounting records. Read endpoints: `GET /agents/:id/performance` (owner/admin) and `GET /network/performance` (authenticated aggregate). Actual investment execution remains disabled/unimplemented; default captured performance is explicitly unknown until valuation and cashflow adapters are connected.
+
+The [protocol and process persistence reference](persistence.md) describes SQLite current state, append-only transition history, stored research inputs and remaining workflow coverage gaps.

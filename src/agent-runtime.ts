@@ -70,7 +70,21 @@ export class AgentRuntime {
     const context = db.get<{ fingerprint: string }>("agent-context", id);
     if (context && context.fingerprint !== fingerprint)
       throw Error("Agent request conflict");
-    if (!context) db.insert("agent-context", id, { fingerprint });
+    if (!context)
+      db.insert("agent-context", id, {
+        fingerprint,
+        agent,
+        system,
+        input,
+        outputSchema,
+        tools: tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          schema: toJsonSchema(t.schema),
+        })),
+        config: this.config,
+        model: c.model,
+      });
     let transportError: unknown;
     let modelCalls = 0,
       toolCalls = 0,
@@ -155,7 +169,7 @@ export class AgentRuntime {
           if (!saved) {
             const output = await t.run(args, signal);
             saved = { fingerprint, output };
-            db.put("agent-tool", key, saved);
+            db.put("agent-tool", key, { ...saved, tool: t.name, input: args });
           }
           observations.push({
             tool: t.name,

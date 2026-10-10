@@ -1,3 +1,4 @@
+import { RoundPerformanceCapture } from "./performance-capture.js";
 import { ChainlinkPrice } from "./price.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { TaxSettlement } from "./tax-settlement.js";
@@ -132,6 +133,7 @@ const maintenance = new WalletMaintenance(db, vault, {
   backupIntervalMs: config.recovery.backupIntervalMs,
   maxBackups: config.recovery.maxBackups,
 });
+const performance = new RoundPerformanceCapture(db, config.chain.id);
 const scheduler = new Scheduler(
     runner,
     penalties,
@@ -139,11 +141,13 @@ const scheduler = new Scheduler(
     launcher,
     maintenance,
     settlement,
+    performance,
   ),
   api = createApi({
     agents,
     budget,
     epochs,
+    performance: performance.ledger,
     adminToken,
     watcher,
     launcher,

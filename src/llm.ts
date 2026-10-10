@@ -318,6 +318,7 @@ export class Llm {
     if (signal?.aborted) throw signal.reason;
     if (!providerReady) throw Error("provider circuit open");
     this.db.transaction(() => {
+      this.db.insert("llm-input", id, { agent, requestHash, payload, raw });
       this.db.insert("llm-call", id, {
         id,
         agent,

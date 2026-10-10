@@ -150,6 +150,17 @@ test("LangChain ReAct runs without usage, charges both requests and resumes with
     assert.equal(tools, 1);
     assert.equal(db.all("llm-call").length, 2);
     assert.equal(
+      db.get<any>("agent-context", "research").system,
+      "Return JSON",
+    );
+    assert.equal(
+      db.all<any>("llm-input")[0].payload.messages[0].role,
+      "system",
+    );
+    assert.deepEqual(db.get<any>("agent-tool", "research:tool:0").input, {
+      query: "BNB",
+    });
+    assert.equal(
       db.all<any>("llm-request").reduce((n, r) => n + BigInt(r.usdMicros), 0n),
       20000n,
     );

@@ -1,3 +1,4 @@
+import { investmentRiskPolicySchema } from "./investment-risk.js";
 import { templateSchema } from "./report-templates.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -5,6 +6,7 @@ import { assetSchema, assertResearchAssets } from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
+  investmentRisk: investmentRiskPolicySchema.default({}),
   confirmation: z.object({ timeoutMs: integer }).default({ timeoutMs: 60000 }),
   reportTemplates: z.record(templateSchema),
   host: z.string(),
