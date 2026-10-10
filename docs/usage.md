@@ -243,3 +243,5 @@ See [stable-reserve risk controls](investment-risk.md) and the [round performanc
 The [protocol and process persistence reference](persistence.md) describes SQLite current state, append-only transition history, stored research inputs and remaining workflow coverage gaps.
 
 [Stable-reserve wallet snapshots and plans](stable-wallet-plans.md) document the read-only confirmed-block collector, durable deterministic adaptation, local CLI, and execution boundaries.
+
+[Confirmed stable-reserve QSP consumption](confirmed-stable-qsp.md) describes the signed allocation extension, internal wallet qualification checks and durable plan linkage.

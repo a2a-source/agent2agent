@@ -33,4 +33,6 @@ Automated tests cover the schema and evidence checks, real local wallet signatur
 
 Before trades can run, the next increment must establish current Worker eligibility and protocol limits (automatic participation, without an additional opt-in), actual wallet/qualification/exit checks, fresh chain snapshots and shared transaction reservations, machine-checkable execution conditions, approved DEX routes and quotes, idempotent submission, receipts and independent P&L. LLM rationale and limitations are not executable conditions. No mainnet transaction is enabled by publishing or previewing a model allocation.
 
-The separate [stable-reserve collector and planner](stable-wallet-plans.md) now provide a durable read-only adaptation path. Their new unsigned input is not silently derived from `network-allocation/1`; signed stable-reserve QSP semantics and the consumer bridge remain to be implemented.
+The separate [stable-reserve collector and planner](stable-wallet-plans.md) now provide a durable read-only adaptation path. Their new unsigned input is not silently derived from `network-allocation/1`; the separately signed stable-reserve extension and internal consumer are described below. Automatic orchestration and execution remain pending.
+
+[Committee-confirmed stable allocation](confirmed-stable-qsp.md) now defines a separate signed optional field and an internal registered-Worker consumer. It does not reinterpret legacy targets or enable execution.

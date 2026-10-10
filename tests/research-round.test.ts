@@ -231,6 +231,22 @@ test("three v2 rounds bind actual context, previous package, independent reports
                 reason: "Data gaps preserved",
               })),
               disagreements: [],
+              stableNetworkAllocation:
+                round === 1
+                  ? null
+                  : {
+                      version: "stable-network-allocation/1",
+                      scope: "NETWORK_MODEL_PORTFOLIO",
+                      reserve: "ALLOWLISTED_STABLECOINS",
+                      nativeBnb: "INCLUDED_IN_BNB_TARGET",
+                      targets: config.research.assets.map((a) => ({
+                        asset: a.address,
+                        targetWeightBps: 0,
+                        evidence: [x.context.evidence[0].id],
+                        rationale: "Synthetic stable reserve",
+                      })),
+                      limitations: ["Synthetic research; not orders"],
+                    },
               networkAllocation:
                 round === 1
                   ? null
@@ -339,6 +355,17 @@ test("three v2 rounds bind actual context, previous package, independent reports
       assert.equal(out.version, "a2a-qsp/2");
       if (out.version !== "a2a-qsp/2") throw Error("version");
       assert.equal(out.reports.length, 6);
+      if (i === 0)
+        assert.equal(out.masterSummary.stableNetworkAllocation, null);
+      else
+        assert.equal(
+          out.masterSummary.stableNetworkAllocation?.reserve,
+          "ALLOWLISTED_STABLECOINS",
+        );
+      assert.equal(
+        masterPrompts.at(-1).stableNetworkAllocationInstructions.scope,
+        "NETWORK_MODEL_PORTFOLIO",
+      );
       if (i === 0) assert.equal(out.masterSummary.networkAllocation, null);
       else {
         assert.equal(out.masterSummary.networkAllocation?.targets.length, 3);
@@ -474,6 +501,7 @@ test("three v2 rounds bind actual context, previous package, independent reports
           "decisions",
           "disagreements",
           "networkAllocation",
+          "stableNetworkAllocation",
           "signals",
           "risks",
         ].sort(),

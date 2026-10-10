@@ -3,6 +3,10 @@ import {
   validateNetworkAllocation,
 } from "./network-allocation.js";
 import {
+  stableNetworkAllocationSchema,
+  validateStableNetworkAllocation,
+} from "./stable-network-allocation.js";
+import {
   templateSchema,
   reportSectionSchema,
   validateReportSections,
@@ -84,6 +88,9 @@ export const decisionSchema = z
       .max(24),
     disagreements: strings,
     networkAllocation: networkAllocationSchema.nullable().optional(),
+    stableNetworkAllocation: stableNetworkAllocationSchema
+      .nullable()
+      .optional(),
     signals: z.array(researchSignalSchema).max(24),
     risks: strings.min(1),
   })
@@ -153,6 +160,14 @@ export function validateResearchDecision(
     roles = reports.map((r) => r.role),
     covered = d.decisions.map((x) => x.role);
   d.signals = enforceHardRiskConditions(d.signals, context);
+  if (d.stableNetworkAllocation)
+    validateStableNetworkAllocation(
+      d.stableNetworkAllocation,
+      context,
+      reports,
+      now,
+      maxAgeMs,
+    );
   if (d.networkAllocation)
     validateNetworkAllocation(
       d.networkAllocation,

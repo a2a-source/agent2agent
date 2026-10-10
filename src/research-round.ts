@@ -301,6 +301,11 @@ export async function buildResearchPackage(p: {
             instruction:
               "Return networkAllocation=null if common market allocation lacks evidence. Otherwise use {version:'network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Cover EVERY configured asset including explicit zero targets. This is a model portfolio independent of the observed wallet. Do not infer targets from its holdings, overweight correction or wallet-specific signals. Cite frozen market evidence used by role reports for every asset. Positive weights require fresh observed liquidity and citation of that matching frozen DEX pool evidence as well as market evidence. Follow context.policy caps; residual allocation is volatile native BNB, not stable cash. Preserve limitations and uncertainty. These are research targets, not authorization or conditional executable orders. Do not invent targets just to populate the field.",
           },
+          stableNetworkAllocationInstructions: {
+            scope: "NETWORK_MODEL_PORTFOLIO",
+            instruction:
+              "For stable-reserve independent-wallet research, return stableNetworkAllocation=null when evidence is insufficient or BTCB/ETH/WBNB are not all configured. Otherwise use {version:'stable-network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',reserve:'ALLOWLISTED_STABLECOINS',nativeBnb:'INCLUDED_IN_BNB_TARGET',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Explicitly cover all three configured assets. Native BNB and WBNB share the BNB target; residual is allowlisted stablecoins, not native BNB. Each underlying target is at most min(2000,context.policy.maxAssetBps); total is at most min(6000,context.policy.maxTotalBps). Use fresh frozen role-cited market evidence for every asset and matching frozen DEX evidence for positive weights. Do not copy wallet-specific holdings corrections, reinterpret networkAllocation, assume a stablecoin quote/peg, or force targets. This is independently evidenced shared allocation, not execution authority.",
+          },
           signalEvidenceRequirements: promptContext.markets.map((m) => ({
             asset: m.asset,
             symbol: m.symbol,
@@ -324,6 +329,7 @@ export async function buildResearchPackage(p: {
             disagreements: [],
             signals: [],
             networkAllocation: null,
+            stableNetworkAllocation: null,
             risks: [
               "Replace with an evidence-based risk or explicit limitation",
             ],
@@ -360,7 +366,10 @@ export async function buildResearchPackage(p: {
       const result = decisionSchema.parse(raw);
       for (const s of result.signals)
         s.evidence = s.evidence.map((id) => evidenceRef(id, context).id);
-      for (const target of result.networkAllocation?.targets ?? [])
+      for (const target of [
+        ...(result.networkAllocation?.targets ?? []),
+        ...(result.stableNetworkAllocation?.targets ?? []),
+      ])
         target.evidence = target.evidence.map(
           (id) => evidenceRef(id, context).id,
         );

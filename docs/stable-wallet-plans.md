@@ -1,6 +1,6 @@
 # Stable-reserve wallet snapshots and reference plans
 
-This increment adds a read-only, database-backed path from a configured wallet's confirmed-block balances and USD oracle observations to a stable-reserve reference investment plan. It does not sign or submit trades, automatically schedule investments, verify an Agent's identity/eligibility, or consume a committee-signed QSP yet. Existing `network-allocation/1` and residual-BNB wallet previews keep their original meaning.
+This increment adds a read-only, database-backed path from a configured wallet's confirmed-block balances and USD oracle observations to a stable-reserve reference investment plan. It does not sign or submit trades, automatically schedule investments, verify an Agent's identity/eligibility, or itself consume a committee-signed QSP. The separate [confirmed stable-QSP consumer](confirmed-stable-qsp.md) now supplies verified shared targets and checks registered Worker state. Existing `network-allocation/1` and residual-BNB wallet previews keep their original meaning.
 
 ## Confirmed-block collection
 
@@ -54,4 +54,4 @@ The local JSON contains `registry`, `request`, `strategy`, `workerEligible` and 
 
 Tests include real local EVM token/feed contract reads and three simulated portfolio rounds, plus stale feeds, wrong decimals, reorganization, excess reservations, idempotency and immutable plan conflicts. This is not live BSC feed/DEX acceptance.
 
-Before execution: signed stable-reserve QSP semantics and committee verification, registered wallet ownership/Worker/exit checks, canonical reservation reconciliation, complete asset coverage, stablecoin depeg policy, exact token selection, executable DEX quotes and Gas, fund locks, idempotent signing, receipts, and denomination-consistent P&L are still required. Fees, slippage, price impact and economic feasibility must pass the execution guard using an actual quote; this planner cannot establish them from oracle marks. B1 post-migration tax and C4 research-quality boundaries remain unchanged.
+Before execution: wire the signed-QSP consumer and fresh registered Worker/exit checks into automatic orchestration, complete canonical reservation reconciliation, complete asset coverage, stablecoin depeg policy, exact token selection, executable DEX quotes and Gas, fund locks, idempotent signing, receipts, and denomination-consistent P&L are still required. Fees, slippage, price impact and economic feasibility must pass the execution guard using an actual quote; this planner cannot establish them from oracle marks. B1 post-migration tax and C4 research-quality boundaries remain unchanged.
