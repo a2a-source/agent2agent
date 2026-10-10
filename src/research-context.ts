@@ -1,3 +1,4 @@
+import { allocationReferenceBrief } from "./allocation-reference.js";
 import {
   roundObservationSummarySchema,
   buildAccountingBrief,
@@ -438,6 +439,7 @@ export function promptSnapshot(c: ResearchContext, role?: string) {
     ...(c.executionFeedback ? { executionFeedback: c.executionFeedback } : {}),
     ...(c.roundObservation ? { roundObservation: c.roundObservation } : {}),
     accountingBrief: buildAccountingBrief(c),
+    allocationReferenceBrief: allocationReferenceBrief(c),
     portfolio: {
       status: c.portfolio.status,
       quoteCurrency: c.portfolio.quoteCurrency,

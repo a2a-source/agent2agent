@@ -43,9 +43,12 @@ for (const testnet of [false, true]) {
     config.network.timeoutMs = 3600000;
     config.network.stateMaxAgeMs = 3600000;
     const accountingPromptRoles = new Set<string>();
+    const allocationPromptRoles = new Set<string>();
     t.after(() => {
       assert.ok(accountingPromptRoles.has("positions"));
       assert.ok(accountingPromptRoles.has("master"));
+      for (const role of ["positions", "risk", "master"])
+        assert.ok(allocationPromptRoles.has(role));
     });
     const runtimeRun = AgentRuntime.prototype.run;
     t.mock.method(
@@ -71,6 +74,28 @@ for (const testnet of [false, true]) {
             supplied.context.accountingBrief.guidance,
             /Latest UNKNOWN does not erase an older KNOWN/,
           );
+          assert.equal(
+            supplied.context.allocationReferenceBrief.currency,
+            "micro-USDT",
+          );
+          assert.match(
+            supplied.context.allocationReferenceBrief.guidance,
+            /not recommended targets/,
+          );
+          if (["positions", "risk"].includes(supplied.identity?.role)) {
+            assert.match(
+              supplied.researchScope.allocationReference,
+              /allocationReferenceBrief/,
+            );
+            allocationPromptRoles.add(supplied.identity.role);
+          }
+          if (id.includes("synthesis")) {
+            assert.match(
+              supplied.stableNetworkAllocationInstructions.instruction,
+              /allocationReferenceBrief/,
+            );
+            allocationPromptRoles.add("master");
+          }
           if (supplied.identity?.role === "positions")
             accountingPromptRoles.add("positions");
           if (id.includes("synthesis")) accountingPromptRoles.add("master");
@@ -442,6 +467,13 @@ for (const testnet of [false, true]) {
           masterPrompts.at(-1).stableNetworkAllocationInstructions.scope,
           "NETWORK_MODEL_PORTFOLIO",
         );
+        assert.deepEqual(out.signals, []);
+        for (const allocation of [
+          out.masterSummary.networkAllocation,
+          out.masterSummary.stableNetworkAllocation,
+        ])
+          if (allocation)
+            assert.ok(allocation.targets.every((t) => t.targetWeightBps === 0));
         if (i === 0) assert.equal(out.masterSummary.networkAllocation, null);
         else {
           assert.equal(out.masterSummary.networkAllocation?.targets.length, 3);

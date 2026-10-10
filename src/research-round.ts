@@ -212,6 +212,12 @@ export async function buildResearchPackage(p: {
               })),
               objective:
                 "Provide role-specific facts and analysis for every configured asset. Use context.facts for funding and limits. Zero token holdings do not prevent BUY when native funding exists; SELL requires holdings. Leave other specialties to their roles. Clearly separate observed evidence, inference, missing data and conditional recommendations; do not invent metrics or sources.",
+              ...(["positions", "risk"].includes(role.id)
+                ? {
+                    allocationReference:
+                      "Use context.allocationReferenceBrief for observed token/native/combined BNB scope; do not add rounded weights or turn observed weights into common targets.",
+                  }
+                : {}),
               toolsAvailable: config.agent.toolsEnabled
                 ? contextTools(context, role.id).map((t) => t.name)
                 : [],
@@ -322,7 +328,7 @@ export async function buildResearchPackage(p: {
             configuredAssets: context.universe,
             testnetProfile: context.testnetProfile ?? null,
             instruction:
-              "For stable-reserve independent-wallet research, return stableNetworkAllocation=null when evidence is insufficient or the configured universe does not cover all three underlying reference markets BTCUSDT, ETHUSDT and BNBUSDT. Use the exact addresses and symbols in configuredAssets, whose registry/profile has been validated. BTCB/ETH/WBNB are mainnet examples, not required literal symbols for a signed test profile. Test-profile market trends are underlying reference evidence, not proof of token backing or executable prices. Otherwise use {version:'stable-network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',reserve:'ALLOWLISTED_STABLECOINS',nativeBnb:'INCLUDED_IN_BNB_TARGET',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Explicitly cover all three configured assets. Native BNB and the configured BNBUSDT token share the BNB target; residual is allowlisted stablecoins, not native BNB. Each underlying target is at most min(2000,context.policy.maxAssetBps); total is at most min(6000,context.policy.maxTotalBps). Use fresh frozen role-cited market evidence for every asset and matching frozen DEX evidence for positive weights. Do not copy wallet-specific holdings corrections, reinterpret networkAllocation, assume a stablecoin quote/peg, or force targets. This is independently evidenced shared allocation, not execution authority.",
+              "For stable-reserve independent-wallet research, return stableNetworkAllocation=null when evidence is insufficient or the configured universe does not cover all three underlying reference markets BTCUSDT, ETHUSDT and BNBUSDT. Use the exact addresses and symbols in configuredAssets, whose registry/profile has been validated. BTCB/ETH/WBNB are mainnet examples, not required literal symbols for a signed test profile. Test-profile market trends are underlying reference evidence, not proof of token backing or executable prices. Otherwise use {version:'stable-network-allocation/1',scope:'NETWORK_MODEL_PORTFOLIO',reserve:'ALLOWLISTED_STABLECOINS',nativeBnb:'INCLUDED_IN_BNB_TARGET',targets:[{asset,targetWeightBps,evidence:[],rationale}],limitations:[]}. Explicitly cover all three configured assets. Use context.allocationReferenceBrief for observed combined BNB; never add separately rounded weights or copy them into targets. Native BNB and the configured BNBUSDT token share the BNB target; residual is allowlisted stablecoins, not native BNB. Each underlying target is at most min(2000,context.policy.maxAssetBps); total is at most min(6000,context.policy.maxTotalBps). Use fresh frozen role-cited market evidence for every asset and matching frozen DEX evidence for positive weights. Do not copy wallet-specific holdings corrections, reinterpret networkAllocation, assume a stablecoin quote/peg, or force targets. This is independently evidenced shared allocation, not execution authority.",
           },
           signalEvidenceRequirements: promptContext.markets.map((m) => ({
             asset: m.asset,
