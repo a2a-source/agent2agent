@@ -268,6 +268,7 @@ export interface RoundObservationJob {
   nextAt: number;
   pinAttempts: number;
   deadlinePinAttempted?: boolean;
+  deadlinePinGeneration?: number;
   generation: number;
   owner?: string;
   leaseUntil?: number;
@@ -410,7 +411,24 @@ export class RoundObservationService {
       }
     });
   }
+  private closeRunningAttempts(job: RoundObservationJob, reason: string) {
+    for (const attempt of this.db.all<{
+      id: string;
+      jobId: string;
+      status: string;
+    }>("round-observation-attempt")) {
+      if (attempt.jobId === job.id && attempt.status === "RUNNING")
+        this.db.put("round-observation-attempt", attempt.id, {
+          ...attempt,
+          status: "FAILED",
+          reason,
+          finishedAt: this.clock(),
+        });
+    }
+  }
   private complete(job: RoundObservationJob, reason?: string) {
+    if (job.status === "RUNNING" && !this.owns(job)) return;
+    if (reason) this.closeRunningAttempts(job, reason);
     if (reason) {
       job.input.missingReasons = [
         ...new Set([...job.input.missingReasons, reason]),
@@ -436,8 +454,19 @@ export class RoundObservationService {
     return (
       current?.owner === job.owner &&
       current?.generation === job.generation &&
-      current?.status === "RUNNING"
+      current?.status === "RUNNING" &&
+      (current.leaseUntil ?? 0) > this.clock()
     );
+  }
+  private canAdvance(job: RoundObservationJob) {
+    if (!this.owns(job)) return false;
+    const finalOpportunity =
+      job.deadlinePinAttempted && job.deadlinePinGeneration === job.generation;
+    if (this.clock() >= job.deadline && !finalOpportunity) {
+      this.complete(job, "OBSERVATION_DEADLINE_EXHAUSTED");
+      return false;
+    }
+    return true;
   }
   private save(job: RoundObservationJob) {
     if (!this.owns(job)) return false;
@@ -472,6 +501,9 @@ export class RoundObservationService {
             (j.owner && (j.leaseUntil ?? 0) > now)
           )
             return null;
+          // A fresh claimant, never the expired owner, closes abandoned coordination attempts.
+          if (j.owner)
+            this.closeRunningAttempts(j, "OBSERVATION_LEASE_EXPIRED");
           j.generation++;
           j.owner = randomUUID();
           j.leaseUntil = now + this.options.leaseMs;
@@ -492,6 +524,7 @@ export class RoundObservationService {
               job.input.missingReasons.includes("WAITING_EXECUTION_BOUNDARY")
             ) {
               job.deadlinePinAttempted = true;
+              job.deadlinePinGeneration = job.generation;
               job.input.missingReasons.push("UNSETTLED_BOUNDARY_AT_DEADLINE");
               this.save(job);
             } else {
@@ -554,7 +587,7 @@ export class RoundObservationService {
                 job.input.openingBoundary?.blockNumber ?? null,
               );
             } catch {
-              if (!this.owns(job)) continue;
+              if (!this.canAdvance(job)) continue;
               this.db.put("round-observation-attempt", attemptId, {
                 id: attemptId,
                 jobId: job.id,
@@ -566,7 +599,22 @@ export class RoundObservationService {
               job.nextAt = this.clock() + this.options.retryMs;
               continue;
             }
-            if (!this.owns(job)) continue;
+            if (!this.canAdvance(job)) continue;
+            const parsedBoundary =
+              observationBoundarySchema.safeParse(boundary);
+            if (boundary && !parsedBoundary.success) {
+              this.db.put("round-observation-attempt", attemptId, {
+                ...this.db.get<object>("round-observation-attempt", attemptId),
+                status: "FAILED",
+                reason: "INVALID_BOUNDARY",
+                finishedAt: this.clock(),
+              });
+              job.nextAt = this.clock() + this.options.retryMs;
+              job.input.missingReasons = [
+                ...new Set([...job.input.missingReasons, "INVALID_BOUNDARY"]),
+              ];
+              continue;
+            }
             if (
               !boundary ||
               boundary.blockTimeMs < job.input.terminalAt! ||
@@ -574,6 +622,12 @@ export class RoundObservationService {
               (job.input.openingBoundary &&
                 boundary.blockNumber <= job.input.openingBoundary.blockNumber)
             ) {
+              this.db.put("round-observation-attempt", attemptId, {
+                ...this.db.get<object>("round-observation-attempt", attemptId),
+                status: "FAILED",
+                reason: "NON_ADVANCING_BOUNDARY",
+                finishedAt: this.clock(),
+              });
               job.nextAt = this.clock() + this.options.retryMs;
               job.input.missingReasons = [
                 ...new Set([
@@ -610,7 +664,7 @@ export class RoundObservationService {
             this.save(job);
           }
           for (const w of job.input.wallets) {
-            if (remaining <= 0) break;
+            if (remaining <= 0 || !this.canAdvance(job)) break;
             const work = job.walletWork[w.agentId]!;
             if (work.done || work.nextAt > this.clock()) continue;
             remaining--;
@@ -665,7 +719,7 @@ export class RoundObservationService {
                     },
                     job.input.closingBoundary!,
                   );
-                  if (!this.owns(job)) break;
+                  if (!this.canAdvance(job)) break;
                   w.closingSnapshotId = s.id;
                   this.db.put("round-observation-attempt", work.captureId, {
                     id: work.captureId,
@@ -677,7 +731,7 @@ export class RoundObservationService {
                     snapshotId: s.id,
                   });
                 } catch {
-                  if (!this.owns(job)) break;
+                  if (!this.canAdvance(job)) break;
                   this.db.put("round-observation-attempt", work.captureId!, {
                     id: work.captureId,
                     jobId: job.id,
@@ -697,7 +751,7 @@ export class RoundObservationService {
                 }
               }
             }
-            if (!this.owns(job)) break;
+            if (!this.canAdvance(job)) break;
             if (!w.openingSnapshotId) {
               work.done = true;
               this.save(job);
@@ -730,7 +784,7 @@ export class RoundObservationService {
                 w.openingSnapshotId,
                 w.closingSnapshotId!,
               );
-              if (!this.owns(job)) break;
+              if (!this.canAdvance(job)) break;
               w.proofIds.push(proof.proofId);
               w.missingReasons = [
                 ...new Set([
@@ -755,7 +809,7 @@ export class RoundObservationService {
                 proofId: proof.proofId,
               });
             } catch (error) {
-              if (!this.owns(job)) break;
+              if (!this.canAdvance(job)) break;
               const proofId = (error as { proofId?: string })?.proofId;
               if (proofId && !w.proofIds.includes(proofId))
                 w.proofIds.push(proofId);
@@ -778,7 +832,7 @@ export class RoundObservationService {
             this.save(job);
           }
           if (
-            this.owns(job) &&
+            this.canAdvance(job) &&
             (Object.values(job.walletWork).every((w) => w.done) ||
               job.deadlinePinAttempted)
           )

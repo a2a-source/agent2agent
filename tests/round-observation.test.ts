@@ -458,3 +458,242 @@ test("a joined wallet resets only its own baseline and prevents a complete netwo
     db.close();
   }
 });
+
+test("expired pin owners cannot capture or publish without a fresh lease claim", async () => {
+  for (const elapsed of [121000, 700000]) {
+    const db = new Store(":memory:");
+    try {
+      const f = observationFixture(db);
+      f.addAgent("a", 20);
+      f.addEpoch("1");
+      const pin = f.adapters.selectBoundary;
+      f.adapters.selectBoundary = async () => {
+        await Promise.resolve();
+        f.state.now += elapsed;
+        return pin();
+      };
+      await f.service().tick();
+      assert.equal(f.job("1").status, "RUNNING");
+      assert.equal(f.job("1").walletWork.a.captureAttempts, 0);
+      assert.equal(f.job("1").input.closingBoundary, null);
+      assert.equal(db.all("round-observation").length, 1);
+      f.adapters.selectBoundary = pin;
+      await f.service().tick();
+      assert.equal(f.job("1").generation, 2);
+      assert.equal(f.job("1").status, "COMPLETE");
+      if (elapsed === 700000) {
+        assert.equal(f.job("1").walletWork.a.captureAttempts, 0);
+        assert.ok(
+          f
+            .job("1")
+            .input.missingReasons.includes("OBSERVATION_DEADLINE_EXHAUSTED"),
+        );
+      }
+    } finally {
+      db.close();
+    }
+  }
+});
+test("ordinary deadline crossed during pin stops before capture even with a valid longer lease", async () => {
+  const db = new Store(":memory:");
+  try {
+    const f = observationFixture(db, { leaseMs: 1000000 });
+    f.addAgent("a", 20);
+    f.addEpoch("1");
+    const pin = f.adapters.selectBoundary;
+    f.adapters.selectBoundary = async () => {
+      await Promise.resolve();
+      f.state.now += 700000;
+      return pin();
+    };
+    await f.service().tick();
+    assert.equal(f.job("1").status, "COMPLETE");
+    assert.equal(f.job("1").walletWork.a.captureAttempts, 0);
+    assert.equal(f.job("1").input.closingBoundary, null);
+    assert.ok(
+      f
+        .job("1")
+        .input.missingReasons.includes("OBSERVATION_DEADLINE_EXHAUSTED"),
+    );
+  } finally {
+    db.close();
+  }
+});
+test("capture and proof expiry retain durable evidence but cannot advance the expired generation", async () => {
+  for (const phase of ["capture", "proof"]) {
+    const db = new Store(":memory:");
+    try {
+      const f = observationFixture(db);
+      f.addAgent("a", 20);
+      f.addEpoch("1");
+      await f.service().tick();
+      f.state.now += 10000;
+      f.state.block = 20;
+      f.addEpoch("2");
+      const capture = f.collector.collectAt.bind(f.collector),
+        proof = f.adapters.prove;
+      let proofCalls = 0;
+      f.adapters.prove = async (...args) => {
+        proofCalls++;
+        const result = await proof(...args);
+        if (phase === "proof") f.state.now += 121000;
+        return result;
+      };
+      if (phase === "capture")
+        f.collector.collectAt = async (...args) => {
+          const result = await capture(...args);
+          f.state.now += 121000;
+          return result;
+        };
+      await f.service().tick();
+      const j = f.job("2");
+      assert.equal(j.status, "RUNNING");
+      assert.equal(db.all("round-observation").length, 3);
+      assert.equal(j.walletWork.a.captureAttempts, 1);
+      assert.equal(j.walletWork.a.done, false);
+      assert.equal(j.input.wallets[0].proofIds.length, 0);
+      assert.equal(
+        db.all<any>("portfolio-capture").filter((c) => c.status === "DONE")
+          .length,
+        2,
+      );
+      assert.equal(proofCalls, phase === "capture" ? 0 : 1);
+      f.collector.collectAt = capture;
+      f.adapters.prove = proof;
+      await f.service().tick();
+      assert.equal(f.job("2").generation, 2);
+      assert.equal(f.job("2").status, "COMPLETE");
+      assert.equal(f.job("2").walletWork.a.captureAttempts, 1);
+      assert.equal(
+        new PerformanceLedger(db).latest("2", 97, "micro-USD")?.network
+          .periodPnL,
+        "0",
+      );
+    } finally {
+      db.close();
+    }
+  }
+});
+test("ordinary deadline crossed during capture or proof never continues into KNOWN publication", async () => {
+  for (const phase of ["capture", "proof"]) {
+    const db = new Store(":memory:");
+    try {
+      const f = observationFixture(db, { leaseMs: 1000000 });
+      f.addAgent("a", 20);
+      f.addEpoch("1");
+      await f.service().tick();
+      f.state.now += 10000;
+      f.state.block = 20;
+      f.addEpoch("2");
+      const capture = f.collector.collectAt.bind(f.collector),
+        prove = f.adapters.prove;
+      let proofCalls = 0;
+      f.adapters.prove = async (...args) => {
+        proofCalls++;
+        const result = await prove(...args);
+        if (phase === "proof") f.state.now += 700000;
+        return result;
+      };
+      if (phase === "capture")
+        f.collector.collectAt = async (...args) => {
+          const result = await capture(...args);
+          f.state.now += 700000;
+          return result;
+        };
+      await f.service().tick();
+      assert.equal(f.job("2").status, "COMPLETE");
+      assert.equal(f.job("2").input.wallets[0].proofIds.length, 0);
+      assert.ok(
+        f
+          .job("2")
+          .input.missingReasons.includes("OBSERVATION_DEADLINE_EXHAUSTED"),
+      );
+      assert.equal(proofCalls, phase === "capture" ? 0 : 1);
+      assert.equal(
+        db.all<any>("portfolio-capture").filter((c) => c.status === "DONE")
+          .length,
+        2,
+      );
+      assert.equal(
+        new PerformanceLedger(db).latest("2", 97, "micro-USD")?.network
+          .periodPnL,
+        null,
+      );
+    } finally {
+      db.close();
+    }
+  }
+});
+test("unsupported pin outcomes close attempts with a terminal reason", async () => {
+  for (const kind of ["null", "nonadvancing", "future", "malformed"]) {
+    const db = new Store(":memory:");
+    try {
+      const f = observationFixture(db);
+      f.addAgent("a", 20);
+      f.addEpoch("1");
+      await f.service().tick();
+      f.state.now += 10000;
+      f.addEpoch("2");
+      const pin = f.adapters.selectBoundary;
+      f.adapters.selectBoundary = (async () =>
+        kind === "null"
+          ? null
+          : kind === "future"
+            ? { ...(await pin()), blockTimeMs: f.state.now + 1000 }
+            : kind === "malformed"
+              ? { ...(await pin()), blockNumber: 20, blockHash: "bad" }
+              : pin()) as typeof pin;
+      await f.service().tick();
+      const attempts = db
+        .all<any>("round-observation-attempt")
+        .filter((a) => a.jobId === f.job("2").id && a.phase === "pin");
+      assert.equal(attempts.length, 1);
+      assert.equal(attempts[0].status, "FAILED");
+      assert.equal(
+        attempts[0].reason,
+        kind === "malformed" ? "INVALID_BOUNDARY" : "NON_ADVANCING_BOUNDARY",
+      );
+      assert.equal(attempts[0].finishedAt, f.state.now);
+      assert.equal(f.job("2").status, "RETRY");
+    } finally {
+      db.close();
+    }
+  }
+});
+
+test("the settlement deadline opportunity remains lease-bound and cannot be renewed by a later generation", async () => {
+  const db = new Store(":memory:");
+  try {
+    const f = observationFixture(db);
+    f.addAgent("a", 20);
+    f.addEpoch("1");
+    f.state.wait = true;
+    await f.service().tick();
+    f.state.now = 1600000;
+    const pin = f.adapters.selectBoundary;
+    f.adapters.selectBoundary = async () => {
+      const result = await pin();
+      f.state.now += 121000;
+      return result;
+    };
+    await f.service().tick();
+    const j = f.job("1");
+    assert.equal(j.status, "RUNNING");
+    assert.equal(j.deadlinePinAttempted, true);
+    assert.equal(j.deadlinePinGeneration, j.generation);
+    assert.equal(j.walletWork.a.captureAttempts, 0);
+    assert.equal(db.all("round-observation").length, 1);
+    f.adapters.selectBoundary = pin;
+    await f.service().tick();
+    assert.equal(f.job("1").status, "COMPLETE");
+    assert.equal(f.job("1").walletWork.a.captureAttempts, 0);
+    assert.equal(f.job("1").pinAttempts, 1);
+    assert.ok(
+      f
+        .job("1")
+        .input.missingReasons.includes("OBSERVATION_DEADLINE_EXHAUSTED"),
+    );
+  } finally {
+    db.close();
+  }
+});

@@ -839,10 +839,9 @@ test("native round cover preserves job snapshots and proves both empty gaps", as
     x.db.close();
   }
 });
-test("native covers reject nonfinal, overlapping, straddling, duplicate, foreign gap and reorg evidence", async () => {
+test("native covers reject nonfinal, straddling, duplicate, foreign gap and reorg evidence", async () => {
   for (const kind of [
     "nonfinal",
-    "overlap",
     "straddle",
     "duplicate",
     "gap",
@@ -857,7 +856,7 @@ test("native covers reject nonfinal, overlapping, straddling, duplicate, foreign
           ...x.job,
           status: "ACTIVE",
         });
-      if (kind === "overlap" || kind === "duplicate")
+      if (kind === "duplicate")
         x.db.put("investment-execution-job", "second", {
           ...x.job,
           id: "second",
@@ -942,6 +941,344 @@ test("native cover permits equal same-block joins but rejects contradictory raw 
             .segments.filter((s: any) => s.zeroLength).length,
           2,
         );
+    } finally {
+      x.db.close();
+    }
+  }
+});
+
+async function twoNativeJobsFixture() {
+  const x = await roundNativeFixture();
+  const secondOpening = x.clone(x.closing, 25);
+  const { id: _quoteId, ...quoteBody } = x.q;
+  const secondQuoteBody = {
+    ...quoteBody,
+    block: 25,
+    blockHash: blockHash(25),
+    createdAt: 25000,
+    validUntil: 34000,
+  };
+  const secondQuote = { ...secondQuoteBody, id: hash(secondQuoteBody) };
+  x.db.put("dex-v2-quote", secondQuote.id, secondQuote);
+  const request = v2QuoteRequest(secondQuote);
+  const raw = await x.wallet.signTransaction({
+    ...request,
+    chainId: 97,
+    nonce: 6,
+    gasLimit: 21000,
+    gasPrice: 1,
+    type: 0,
+  });
+  const tx = Transaction.from(raw);
+  const row = {
+    ...x.row,
+    id: "native-second",
+    reservationId: "reservation-second",
+    raw,
+    hash: tx.hash!,
+    block: 26,
+    blockHash: blockHash(26),
+  };
+  x.db.put("transaction", row.id, row);
+  const receipt: any = {
+    hash: tx.hash!,
+    from: x.owner,
+    to: address(50),
+    status: 1,
+    blockNumber: 26,
+    blockHash: blockHash(26),
+    gasUsed: 21000n,
+    gasPrice: 1n,
+    logs: [],
+    confirmations: async () => 20,
+  };
+  receipt.logs = [
+    x.makeLog(address(12), address(50), address(52), 100n, 0, receipt),
+    x.makeLog(address(13), address(52), x.owner, 100n, 1, receipt),
+  ];
+  x.receipts.set(tx.hash!, receipt);
+  x.setLogs([
+    ...x.logs(),
+    ...receipt.logs.filter((l: any) => l.address === address(13)),
+  ]);
+  const { id: _closingId, ...closingBody } = secondOpening;
+  Object.assign(closingBody, {
+    requestId: "second-close",
+    blockNumber: 35,
+    blockHash: blockHash(35),
+    observedAt: 35000,
+  });
+  closingBody.holdings = closingBody.holdings.map((h: any) => ({
+    ...h,
+    balance:
+      h.asset === "native"
+        ? String(BigInt(h.balance) - 21100n)
+        : h.bucket === "STABLE"
+          ? String(BigInt(h.balance) + 100n)
+          : h.balance,
+  }));
+  const secondClosing = { ...closingBody, id: hash(closingBody) };
+  x.db.put("portfolio-snapshot", secondClosing.id, secondClosing);
+  x.db.put("portfolio-capture", secondClosing.requestId, {
+    ...x.db.get<any>("portfolio-capture", secondOpening.requestId),
+    snapshotId: secondClosing.id,
+  });
+  const reservation = {
+    ...x.db.get<any>("wallet-reservation", "reservation"),
+    id: "reservation-second",
+    planId: "plan-second",
+    snapshotId: secondOpening.id,
+    transactionIds: [row.id],
+  };
+  x.db.put("wallet-reservation", reservation.id, reservation);
+  x.db.put("wallet-reservation-binding", row.id, {
+    ...x.db.get<any>("wallet-reservation-binding", "native"),
+    id: row.id,
+    reservationId: reservation.id,
+    requestHash: reservedRequestHash(request),
+  });
+  x.db.put("investment-execution-reservation", reservation.id, {
+    planId: "plan-second",
+    jobId: "job-second",
+  });
+  x.db.put("stable-wallet-plan", "plan-second", {
+    ...x.db.get<any>("stable-wallet-plan", "plan"),
+    id: "plan-second",
+    snapshotId: secondOpening.id,
+  });
+  const secondJob = {
+    ...x.job,
+    id: "job-second",
+    planId: "plan-second",
+    reservationId: reservation.id,
+    closingSnapshotId: secondClosing.id,
+    orders: x.job.orders.map((o: any) => ({
+      ...o,
+      swapId: row.id,
+      quoteId: secondQuote.id,
+    })),
+  };
+  x.db.put("investment-execution-job", secondJob.id, secondJob);
+  x.provider.getBlockNumber = async () => 42;
+  x.provider.getTransactionCount = async (_w: string, block: number) =>
+    block < 11 ? 5 : block < 26 ? 6 : 7;
+  const { PortfolioCollector } = await import("../src/portfolio-snapshot.js");
+  const registry = x.db.get<any>(
+    "portfolio-capture",
+    x.opening.requestId,
+  ).registry;
+  let at = 5000;
+  const collector = new PortfolioCollector(
+    x.db,
+    {
+      chainId: async () => 97,
+      tip: async () => 42,
+      block: async (n: number) => ({
+        number: n,
+        hash: blockHash(n),
+        timestamp: n,
+      }),
+      read: async (asset: any, _wallet: string, block: number) => ({
+        balance: (block === 5 ? x.opening : secondClosing).holdings.find(
+          (h: any) => h.asset === asset.asset,
+        )!.balance,
+        decimals: asset.decimals,
+        price: {
+          answer: "1000000000000",
+          decimals: 0,
+          description: asset.description,
+          roundId: "1",
+          answeredInRound: "1",
+          updatedAt: block,
+        },
+      }),
+    },
+    registry,
+    () => at,
+  );
+  const capture = async (block: number) => {
+    at = block * 1000;
+    return collector.collectAt(
+      {
+        id: "valued-outer" + block,
+        agent: "agent",
+        wallet: x.owner,
+        gasReserveWei: "0",
+        reservationSource: "round-observation",
+        reserved: Object.fromEntries(
+          registry.assets.map((a: any) => [a.asset, "0"]),
+        ),
+      },
+      {
+        blockNumber: block,
+        blockHash: blockHash(block),
+        blockTimeMs: block * 1000,
+      },
+    );
+  };
+  Object.assign(x.a, await capture(5));
+  Object.assign(x.b, await capture(40));
+  return {
+    ...x,
+    secondOpening,
+    secondClosing,
+    secondQuote,
+    secondJob,
+    secondRow: row,
+  };
+}
+
+test("two separately bound native jobs prove the empty middle gap and publish outer PnL with gas once", async () => {
+  const x = await twoNativeJobsFixture();
+  try {
+    const result = await x.runRound();
+    assert.equal(result.status, "KNOWN");
+    const cover = x.db.get<any>("round-cashflow-proof", result.proofId);
+    assert.deepEqual(cover.transactionIds, ["native", "native-second"]);
+    assert.equal(cover.segments.length, 5);
+    assert.deepEqual(
+      cover.segments.map((s: any) => [
+        s.openingSnapshotId,
+        s.closingSnapshotId,
+        s.transactionIds,
+      ]),
+      [
+        [x.a.id, x.opening.id, []],
+        [x.opening.id, x.closing.id, ["native"]],
+        [x.closing.id, x.secondOpening.id, []],
+        [x.secondOpening.id, x.secondClosing.id, ["native-second"]],
+        [x.secondClosing.id, x.b.id, []],
+      ],
+    );
+    const middle = x.db.get<any>(
+      "execution-cashflow-proof",
+      cover.segments[2].proofId,
+    );
+    assert.equal(middle.status, "KNOWN");
+    assert.deepEqual(middle.nonceBounds, { opening: 6, closing: 6 });
+    const { publishRoundObservation } =
+      await import("../src/round-observation.js");
+    const { validateRoundCashflowProof } =
+      await import("../src/round-observation-evidence.js");
+    const { PerformanceLedger } = await import("../src/performance-ledger.js");
+    assert.equal(
+      validateRoundCashflowProof(x.db, result.proofId, x.a.id, x.b.id),
+      "KNOWN",
+    );
+    const published = publishRoundObservation(
+      x.db,
+      {
+        chainId: 97,
+        roundId: "two-native",
+        sourceStatus: "PUBLISHED",
+        terminalAt: 39000,
+        observedAt: 40000,
+        roster: [{ agentId: "agent", wallet: x.owner }],
+        rosterComplete: true,
+        predecessorId: null,
+        registryHash: x.a.registryHash,
+        configHash: hash({}),
+        openingBoundary: {
+          blockNumber: 5,
+          blockHash: blockHash(5),
+          blockTimeMs: 5000,
+        },
+        closingBoundary: {
+          blockNumber: 40,
+          blockHash: blockHash(40),
+          blockTimeMs: 40000,
+        },
+        lifecycle: "COMPLETE",
+        wallets: [
+          {
+            agentId: "agent",
+            wallet: x.owner,
+            openingSnapshotId: x.a.id,
+            closingSnapshotId: x.b.id,
+            proofIds: [result.proofId],
+            captureAttemptIds: [],
+            missingReasons: [],
+          },
+        ],
+        missingReasons: [],
+      },
+      null,
+    );
+    assert.equal(x.a.navMicros, "1001000");
+    assert.equal(x.b.navMicros, "959000");
+    const ledger = new PerformanceLedger(x.db).latest(
+      "two-native",
+      97,
+      "micro-USD",
+    )!;
+    assert.equal(ledger.network.periodPnL, "-42000");
+    assert.deepEqual(ledger.network.periodReturn, {
+      numerator: "-42000",
+      denominator: "1001000",
+    });
+    assert.equal((ledger as any).observationId, published.id);
+    const { id: _coverId, ...omitted } = cover;
+    omitted.segments = omitted.segments.filter((_s: any, i: number) => i !== 2);
+    const omittedId = hash(omitted);
+    x.db.put("round-cashflow-proof", omittedId, { ...omitted, id: omittedId });
+    assert.throws(
+      () => validateRoundCashflowProof(x.db, omittedId, x.a.id, x.b.id),
+      /OBSERVATION_PROOF_COVER_INVALID/,
+    );
+  } finally {
+    x.db.close();
+  }
+});
+
+test("distinct native transaction windows reject overlap specifically and detect a foreign middle-gap nonce", async () => {
+  for (const kind of ["overlap", "foreign-nonce", "foreign-journal"]) {
+    const x = await twoNativeJobsFixture();
+    try {
+      if (kind === "overlap") {
+        const overlap = x.clone(x.secondOpening, 15);
+        x.db.put("stable-wallet-plan", "plan-second", {
+          ...x.db.get<any>("stable-wallet-plan", "plan-second"),
+          snapshotId: overlap.id,
+        });
+        x.db.put("wallet-reservation", "reservation-second", {
+          ...x.db.get<any>("wallet-reservation", "reservation-second"),
+          snapshotId: overlap.id,
+        });
+      } else {
+        // A separate outgoing nonce in (20,25] cannot disappear between native windows.
+        x.provider.getTransactionCount = async (_w: string, block: number) =>
+          block < 11 ? 5 : block < 23 ? 6 : block < 26 ? 7 : 8;
+        if (kind === "foreign-journal") {
+          const raw = await x.wallet.signTransaction({
+            to: address(60),
+            chainId: 97,
+            nonce: 6,
+            gasLimit: 21000,
+            gasPrice: 1,
+            type: 0,
+            value: 0,
+          });
+          const tx = Transaction.from(raw);
+          x.db.put("transaction", "foreign-gap", {
+            id: "foreign-gap",
+            sender: x.owner,
+            raw,
+            hash: tx.hash,
+            state: "CONFIRMED",
+            block: 23,
+            blockHash: blockHash(23),
+          });
+        }
+      }
+      const result = await x.runRound();
+      assert.equal(result.status, "UNKNOWN");
+      assert.deepEqual(result.reasons, [
+        kind === "overlap"
+          ? "NATIVE_SEGMENTS_OVERLAP"
+          : kind === "foreign-journal"
+            ? "NATIVE_COVER_TRANSACTION_MISMATCH"
+            : "NONCE_COVERAGE_INCOMPLETE",
+      ]);
     } finally {
       x.db.close();
     }
