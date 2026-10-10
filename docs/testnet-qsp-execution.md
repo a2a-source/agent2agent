@@ -80,3 +80,13 @@ Router: `0xd99d1c33f9fc3444f8101754abc46c52416550d1`. Stake contract: `0xeed3bc5
 | 103 | investment-test-3 | SELL ETH | [0x48d8f46d…](https://testnet.bscscan.com/tx/0x48d8f46d0b153013d8794507a23dc859f8b56e0b563a02130aac601ae83fb4e1) |
 
 This evidence is a bounded real-chain execution test, not a six-hour stability acceptance. Live LLM-to-execution testing, prolonged cadence/failover verification, native BNB conversion and priced external-flow accounting remain separate acceptance items.
+
+## Subsequent live research checks
+
+A separate run used real OpenRouter free-model calls, the production role prompts, research task recovery and committee confirmation. It combined actual underlying BTC/ETH/BNB market/news research with explicitly labeled BSC97 fixture valuations, actual wallet balances and pinned test-pool reserves. Registration and compute credits remained a laboratory bootstrap; this did not repeat token launch or tax funding acceptance.
+
+Epoch `1791642074908` published a committee-confirmed QSP after 22 dispatched model requests. It had no stable allocation: two fixture pools were below the unchanged research liquidity floor, and the Master retained market uncertainty. An explicit underlying-news mapping issue was fixed while preserving completed reports and failed attempts. Publication without an allocation is not evidence of LLM-driven trading.
+
+Operator-owned fixture liquidity was then redistributed on-chain so BTC, ETH and BNB pools exceeded that floor, without reducing the risk threshold. Epoch `1791643428357` consumed round 106 accounting feedback and the refreshed pool evidence. Five role reports completed, including bounded retries for invalid output. The remaining onchain role exhausted its two attempts after a 240-second provider timeout; no new QSP or trade resulted from this attempt. At that point the separate research database contained 54 dispatched requests in total. These outcomes are retained for subsequent scheduler recovery; neither failed output nor a null allocation is rewritten into a trade signal.
+
+The 24 confirmed swaps above therefore remain a signed-fixture-QSP execution proof. Full live-LLM-to-trade acceptance and the six-hour stability verdict must be established separately from these research outcomes.
