@@ -16,11 +16,13 @@ export class Scheduler {
   private idle?: Promise<void>;
   private resolveIdle?: () => void;
   private runTask?: Promise<void>;
+  private planningTask?: Promise<void>;
   async stop() {
     this.stopped = true;
     this.runner.cancel();
     await this.idle;
     await this.runTask;
+    await this.planningTask;
   }
   constructor(
     readonly runner: Runner,
@@ -30,6 +32,7 @@ export class Scheduler {
     readonly maintenance?: WalletMaintenance,
     readonly settlement?: TaxSettlement,
     readonly accounting?: { tick(): void | Promise<void> },
+    readonly planning?: { tick(): Promise<void> },
   ) {}
   async tick() {
     if (this.busy || this.stopped) return;
@@ -112,6 +115,24 @@ export class Scheduler {
       }
       if (this.stopped) return;
       this.penalties.observeResearch();
+      if (this.planning && !this.planningTask) {
+        this.planningTask = Promise.resolve()
+          .then(() => this.planning!.tick())
+          .then(() => {
+            db.put("service-error", "investment-planning", {
+              status: "HEALTHY",
+            });
+          })
+          .catch(() => {
+            db.put("service-error", "investment-planning", {
+              at: Date.now(),
+              reason: "PLANNING_RETRY_PENDING",
+            });
+          })
+          .finally(() => {
+            this.planningTask = undefined;
+          });
+      }
       const confirming = db
         .all<Epoch>("epoch")
         .some(

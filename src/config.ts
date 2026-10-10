@@ -1,4 +1,5 @@
 import { investmentRiskPolicySchema } from "./investment-risk.js";
+import { planningConfigSchema } from "./investment-planning.js";
 import { templateSchema } from "./report-templates.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
@@ -6,6 +7,7 @@ import { assetSchema, assertResearchAssets } from "./research-context.js";
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
+  investmentPlanning: planningConfigSchema.default({}),
   investmentRisk: investmentRiskPolicySchema.default({}),
   confirmation: z.object({ timeoutMs: integer }).default({ timeoutMs: 60000 }),
   reportTemplates: z.record(templateSchema),
@@ -142,10 +144,19 @@ export function loadConfig(path?: string): Config {
     agent: { ...base.agent, ...override.agent },
     recovery: { ...base.recovery, ...override.recovery },
     settlement: { ...base.settlement, ...override.settlement },
+    investmentPlanning: {
+      ...base.investmentPlanning,
+      ...override.investmentPlanning,
+    },
     research: { ...base.research, ...override.research },
   });
   if (new Set(c.roles.map((r) => r.id)).size !== c.roles.length)
     throw Error("duplicate roles");
+  if (
+    c.investmentPlanning.enabled &&
+    (!c.chain.rpcUrl || c.investmentPlanning.registry?.chainId !== c.chain.id)
+  )
+    throw Error("investment planning requires matching registry and RPC chain");
   if (
     new Set(c.research.assets.map((a) => a.address.toLowerCase())).size !==
     c.research.assets.length

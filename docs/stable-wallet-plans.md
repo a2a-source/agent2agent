@@ -19,7 +19,7 @@ Values use integer USD micro-units and round down. A snapshot is a **tracked-uni
 - `portfolio-snapshot`: immutable holdings, prices, NAV, available values, BNB-aggregated exposures, block identity, registry and reservation provenance, observation time and validity.
 - `stable-wallet-plan`: frozen strategy, risk policy, eligibility input, snapshot link, reference orders or rejection/no-action reason. SQLite history retains transitions.
 
-A returned cached record is historical retrieval, not fresh execution permission. No scheduler is installed by these libraries; an orchestrator must generate new capture identities and respect deadlines automatically. API credentials and RPC URLs are not persisted in these records.
+A returned cached record is historical retrieval, not fresh execution permission. The separate [automatic reference planner](automatic-investment-planning.md) wires these libraries into the service, generates capture identities and respects deadlines. API credentials and RPC URLs are not persisted in these records.
 
 ## Deterministic adaptation
 

@@ -146,5 +146,13 @@
     "maxSlippageBps": 50,
     "maxPriceImpactBps": 50,
     "quoteMaxAgeMs": 30000
+  },
+  "investmentPlanning": {
+    "enabled": false,
+    "registry": null,
+    "maxAttempts": 3,
+    "retryMs": 30000,
+    "leaseMs": 120000,
+    "maxJobsPerTick": 4
   }
 }

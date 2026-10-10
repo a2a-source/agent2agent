@@ -1,4 +1,10 @@
 import { RoundPerformanceCapture } from "./performance-capture.js";
+import { InvestmentPlanning } from "./investment-planning.js";
+import {
+  PortfolioCollector,
+  EthersPortfolioReader,
+} from "./portfolio-snapshot.js";
+import { ConfirmedStablePlans } from "./confirmed-stable-plans.js";
 import { ChainlinkPrice } from "./price.js";
 import { AgentRuntime } from "./agent-runtime.js";
 import { TaxSettlement } from "./tax-settlement.js";
@@ -134,6 +140,34 @@ const maintenance = new WalletMaintenance(db, vault, {
   maxBackups: config.recovery.maxBackups,
 });
 const performance = new RoundPerformanceCapture(db, config.chain.id);
+const minimumCompute = () =>
+  llm.priceReady()
+    ? llm.maximum() *
+      BigInt(config.agent.maxToolRounds + 1) *
+      BigInt(config.roles.length + 2)
+    : undefined;
+const planning = config.investmentPlanning.enabled
+  ? new InvestmentPlanning(
+      db,
+      new PortfolioCollector(
+        db,
+        new EthersPortfolioReader(priceProvider),
+        config.investmentPlanning.registry,
+      ),
+      new ConfirmedStablePlans(
+        db,
+        budget,
+        config.chain.id,
+        config.network.stateMaxAgeMs,
+        minimumCompute,
+        config.investmentRisk,
+      ),
+      {
+        ...config.investmentPlanning,
+        gasReserveWei: config.chain.gasReserveWei,
+      },
+    )
+  : undefined;
 const scheduler = new Scheduler(
     runner,
     penalties,
@@ -142,6 +176,7 @@ const scheduler = new Scheduler(
     maintenance,
     settlement,
     performance,
+    planning,
   ),
   api = createApi({
     agents,
@@ -153,12 +188,7 @@ const scheduler = new Scheduler(
     launcher,
     penalties,
     tick: () => scheduler.tick(),
-    minimumCompute: () =>
-      llm.priceReady()
-        ? llm.maximum() *
-          BigInt(config.agent.maxToolRounds + 1) *
-          BigInt(config.roles.length + 2)
-        : undefined,
+    minimumCompute,
     stateMaxAgeMs: config.network.stateMaxAgeMs,
   });
 api.requestTimeout = 30000;
