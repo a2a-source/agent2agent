@@ -154,6 +154,62 @@ for (const failure of ["configuration", "context"] as const) {
   });
 }
 
+for (const frozenConfig of ["mismatched", "matching", "absent"] as const) {
+  test(`${frozenConfig} run configuration with an unavailable committee preserves frozen evidence and the appropriate cadence`, async (t) => {
+    const now = 2000000000000;
+    t.mock.method(Date, "now", () => now);
+    const { db, epochs, llm, runner, epoch, version, context } = fixture(t);
+    const savedConfig =
+      frozenConfig === "absent"
+        ? undefined
+        : {
+            version:
+              frozenConfig === "mismatched" ? "old-configuration" : version,
+          };
+    if (savedConfig) db.put("run-config", epoch.id, savedConfig);
+    const savedContext = { version, hash: hash(context), context };
+    db.put("research-context", epoch.id, savedContext);
+    const member = runner.agents.list().find((a) => a.id !== epoch.master)!;
+    db.put("agent", member.id, { ...member, jailed: true });
+    db.put("quarantine", member.id, {
+      agent: member.id,
+      reason: "REPEATED_PLATFORM_FAILURE",
+      at: now,
+    });
+    const frozenAgents = db.all("agent"),
+      frozenQuarantine = db.all("quarantine");
+    let calls = 0;
+    t.mock.method(llm, "call", async () => {
+      calls++;
+      throw Error("unexpected LLM call");
+    });
+    const terminal = frozenConfig === "mismatched";
+    await assert.rejects(
+      runner.run(epoch),
+      terminal ? /configuration changed/ : /insufficient healthy committee/,
+    );
+    const current = epochs.get(epoch.id);
+    assert.equal(current.status, terminal ? "FAILED" : "RUNNING");
+    assert.equal(current.finishedAt, terminal ? now : undefined);
+    assert.equal(current.nextEligibleAt, terminal ? now + 15000 : undefined);
+    assert.equal(current.view, epoch.view);
+    assert.equal(current.deadline, epoch.deadline);
+    const failure = db.get<any>("research-failure", `${epoch.id}:0`);
+    assert.equal(failure.terminal, terminal);
+    assert.equal(
+      failure.code,
+      terminal ? "RUN_CONFIGURATION_CHANGED" : "COMMITTEE_UNAVAILABLE",
+    );
+    assert.deepEqual(db.get("run-config", epoch.id), savedConfig);
+    assert.deepEqual(db.get("research-context", epoch.id), savedContext);
+    assert.deepEqual(db.all("agent"), frozenAgents);
+    assert.deepEqual(db.all("quarantine"), frozenQuarantine);
+    assert.equal(db.all("research-attempt").length, 0);
+    assert.equal(db.all("llm-request").length, 0);
+    assert.equal(calls, 0);
+  });
+}
+
 test("unknown errors retain takeover behavior and persist no arbitrary secret-bearing text", async (t) => {
   const { db, epochs, runner, epoch } = fixture(t);
   t.mock.method(runner, "candidates", () => {

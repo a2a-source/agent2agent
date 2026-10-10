@@ -174,10 +174,7 @@ export class Runner {
       }
       const available = new Set(this.candidates().map((c) => c.id));
       const active = epoch.committee.filter((c) => available.has(c.id));
-      if (!available.has(epoch.master) || active.length < 3)
-        throw Error("insufficient healthy committee members");
-      const workers = active.filter((c) => c.id !== epoch.master),
-        roles = this.config.roles;
+      const roles = this.config.roles;
       const version = hash({
         roles,
         reportTemplates: this.config.reportTemplates,
@@ -192,6 +189,9 @@ export class Runner {
       );
       if (old && old.version !== version)
         throw Error("configuration changed during epoch");
+      if (!available.has(epoch.master) || active.length < 3)
+        throw Error("insufficient healthy committee members");
+      const workers = active.filter((c) => c.id !== epoch.master);
       if (!old) this.agents.db.insert("run-config", epoch.id, { version });
       if (this.config.research.enabled) {
         const output = await buildResearchPackage({
