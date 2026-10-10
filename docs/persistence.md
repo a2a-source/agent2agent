@@ -8,13 +8,14 @@ Persistence is a system requirement: protocol inputs, participants, state transi
 | --- | --- |
 | Identity and eligibility | `user`, `agent`, encrypted `wallet`, `chain-state`, staking and quarantine records |
 | Election and round lifecycle | `election`, `term`, `epoch`, `incident`, `research-assignment` |
-| Research inputs and work | `research-context`, `agent-context`, `llm-input`, `llm-call`, `llm-request`, `research-attempt`, `agent-tool`, `research-evidence`, `report` |
+| Research inputs and work | `research-context`, `agent-context`, `llm-input`, `llm-call`, `llm-request`, `research-attempt`, `agent-tool-call`, `agent-tool`, `research-evidence`, `report` |
 | Confirmation and final artifact | `research-final`, `commitment`, `confirmation-proposal`, `confirmation-intent`, `confirmation-vote`, published epoch data |
 | Chain operations and budgets | `transaction`, transaction errors, credit/reservation/balance and reconciliation records |
+| Investment preview | `investment-preview` stores validated input, evaluation time and DONE/REJECTED outcome for the CLI |
 | Investment reference risk | `investment-risk-cycle`, `investment-risk-order` (reference reservations, not executed trades) |
 | Round accounting | `performance-input`, `performance-round`, `performance-agent`, `performance-investment` |
 
-Agent context retains the supplied prompt, input, tool definitions, output schema and runtime limits. `llm-input` retains the actual dispatched request payload separately from provider credentials; corresponding call records retain outcomes. Successful tool records retain tool identity, parameters and observed output. Stored structured analysis is the explanation artifact; no hidden model reasoning is requested or required.
+Agent context retains the supplied prompt, input, tool definitions, output schema and runtime limits. `llm-input` retains the actual dispatched request payload separately from provider credentials; corresponding call records retain outcomes. Tool calls persist RUNNING before dispatch and then DONE, FAILED or ABORTED; pre-dispatch cancellation and call-budget refusal persist without dispatch. Success and the cached observation commit together. Tool failures retain bounded reason codes rather than raw provider error strings. Replays reuse completed observations; RUNNING is treated as uncertain and never blindly reissued under the same identity. Existing bounded research retries may create a fresh attempt; transport failures do not penalize the Worker. Historical success-only tool caches remain readable without inventing missing dispatch timestamps. Stored structured analysis is the explanation artifact; no hidden model reasoning is requested or required.
 
 ## State and history
 
@@ -26,7 +27,7 @@ Backups must include the complete SQLite database, including history, using the 
 
 ## Remaining integration work
 
-This requirement is broader than the current coverage. Standalone allocation/wallet preview calculations still need a durable business execution wrapper. Tool dispatch/failure/interruption details do not yet have a complete per-attempt journal. Pre-dispatch provider refusal is not yet a complete request-attempt record. Historical hash-only contexts are not backfilled with invented content.
+This requirement is broader than the current coverage. The standalone wallet-preview CLI now commits its validated input and result/rejection. Direct calculator calls and QSP-to-wallet adaptation still need integration into the investment orchestrator; the CLI journal is not that orchestrator. Invalid input schemas are rejected before archival, rather than storing arbitrary untrusted fields as protocol data. Pre-dispatch provider refusal is not yet a complete request-attempt record. Historical hash-only contexts are not backfilled with invented content.
 
 Stable-reserve portfolio collection, executable per-wallet decisions, DEX quotes, order dispatch, receipts, reconciliation and confirmed valuation/flow attribution must persist before those workflows can be accepted. They are not enabled by the reference risk guard. Current automatic round accounting explicitly records missing data rather than fabricated profit or zero returns. See [investment risk](investment-risk.md) and [performance accounting](performance-ledger.md).
 

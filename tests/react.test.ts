@@ -161,6 +161,11 @@ test("LangChain ReAct runs without usage, charges both requests and resumes with
       query: "BNB",
     });
     assert.equal(
+      db.get<any>("agent-tool-call", "research:tool:0").status,
+      "DONE",
+    );
+    assert.equal(db.get<any>("agent-tool-call", "research:tool:0").agent, "a");
+    assert.equal(
       db.all<any>("llm-request").reduce((n, r) => n + BigInt(r.usdMicros), 0n),
       20000n,
     );
@@ -184,6 +189,22 @@ test("LangChain ReAct runs without usage, charges both requests and resumes with
     assert.equal(calls, 2);
     assert.equal(tools, 1);
     db.remove("agent-result", "research");
+    const toolCall = db.get<any>("agent-tool-call", "research:tool:0")!;
+    const toolResult = db.get<any>("agent-tool", "research:tool:0")!;
+    db.put("agent-tool-call", "research:tool:0", {
+      ...toolCall,
+      status: "RUNNING",
+    });
+    db.remove("agent-tool", "research:tool:0");
+    await assert.rejects(
+      runtime.run("a", "research", "Return JSON", "research", supplied),
+      /uncertain Agent tool/,
+    );
+    assert.equal(db.get("agent-result", "research"), undefined);
+    assert.equal(calls, 2);
+    assert.equal(tools, 1);
+    db.put("agent-tool-call", "research:tool:0", toolCall);
+    db.put("agent-tool", "research:tool:0", toolResult);
     const uncertain = db.get<any>("llm-call", "research:model:1")!;
     db.put("llm-call", "research:model:1", {
       ...uncertain,
@@ -195,6 +216,23 @@ test("LangChain ReAct runs without usage, charges both requests and resumes with
     );
     assert.equal(calls, 2);
     assert.equal(tools, 1);
+    await assert.rejects(
+      runtime.run("a", "failed-tool", "Return JSON", "research", [
+        {
+          ...supplied[0]!,
+          run: async () => {
+            throw Error("provider-secret");
+          },
+        },
+      ]),
+      /Agent tool failed/,
+    );
+    assert.equal(
+      db.get<any>("agent-tool-call", "failed-tool:tool:0").status,
+      "FAILED",
+    );
+    assert.equal(db.get("agent-result", "failed-tool"), undefined);
+    assert.equal(calls, 3);
   } finally {
     db.close();
     server.closeAllConnections();

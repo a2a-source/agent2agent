@@ -60,6 +60,14 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
   if (error instanceof SyntaxError || (error as any)?.name === "ZodError")
     return "INVALID_OUTPUT";
   const message = error instanceof Error ? error.message : String(error);
+  // Journal-backed transport failures must advance to a new bounded attempt,
+  // never replay an uncertain tool identity or penalize a research Worker.
+  if (
+    /^(uncertain Agent tool call|Agent tool failed|Agent tool aborted)/.test(
+      message,
+    )
+  )
+    return "PROVIDER";
   if (message.startsWith("news FULL_TEXT claim")) return "INVALID_OUTPUT";
   if (
     /LLM HTTP|LLM request limit|LLM API key|fetch|LLM usage|LLM content|provider|uncertain LLM|timeout/i.test(

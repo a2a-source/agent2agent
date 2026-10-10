@@ -5,10 +5,10 @@ The next-stage foundation is a deterministic **reference-price calculator**, ava
 ## Run the synthetic example
 
 ```sh
-npm run investment:preview -- examples/investment-preview.json 1100
+npm run investment:preview -- examples/investment-preview.json 1100 var/preview-demo.sqlite
 ```
 
-All addresses, times, prices and balances in this example are synthetic. The final argument is an explicit evaluation timestamp in milliseconds, enabling reproducible replay. The result has `previewOnly: true`, `executed: false` and hashes identifying the supplied strategy, policy and snapshot. These hashes establish reproducibility, not authenticity. Caller-supplied prices and balances are not verified against a chain. CLI rejection exits nonzero without echoing the input.
+All addresses, times, prices and balances in this example are synthetic. The second argument is an explicit evaluation timestamp in milliseconds, enabling reproducible replay. The optional third argument chooses the SQLite database; when omitted, the default configuration database is used. The CLI commits an `investment-preview-record/1` record before printing it. The envelope includes validated input, evaluation/recording times and DONE or REJECTED status. A DONE record contains `output`; that nested result has `previewOnly: true`, `executed: false` and hashes identifying the supplied strategy, policy and snapshot. These hashes establish reproducibility, not authenticity. Caller-supplied prices and balances are not verified against a chain. Business rejection stores the validated input with `PLANNER_VALIDATION_FAILED` and prints the record with a nonzero exit status. Schema/JSON errors are rejected without echoing or storing arbitrary input. Identical normalized input and evaluation time replay the same record. These local snapshots are private wallet data, not public API responses.
 
 The example has 10 native units priced at $100, reserves 0.1 for gas, and requests a 20% token allocation: reference portfolio value $990 and reference BUY value $198. This is an arithmetic example, not recommended asset allocation or a DEX quote.
 
@@ -24,6 +24,6 @@ The policy bounds per-token and aggregate target weights and absolute reference 
 
 ## Integration still required
 
-Current QSP v2 signals are tied to `context.portfolioIdentity.wallet`. A risk-reduction SELL for one wallet is not a universal market SELL. Do not copy those signals into this calculator as a network-wide strategy. The [shared-allocation extension](network-allocation.md) now distinguishes shared market allocation and binds it to committee confirmation. Machine-checkable execution conditions and wallet authorization still require the execution stage.
+Current QSP v2 signals are tied to `context.portfolioIdentity.wallet`. A risk-reduction SELL for one wallet is not a universal market SELL. Do not copy those signals into this calculator as a network-wide strategy. The [shared-allocation extension](network-allocation.md) now distinguishes shared market allocation and binds it to committee confirmation. Machine-checkable execution conditions and Worker eligibility checks still require the execution stage.
 
-Execution additionally requires explicit wallet authorization, fresh canonical balance checks, qualification/exit-state policy, shared transaction reservations, allowlisted DEX routes, actual quotes, slippage/deadlines, receipt reconciliation and an independent execution ledger referencing the immutable QSP hash. None is enabled by this calculator. Profit distribution remains separate. Existing [v0.1 boundaries](v0.1-boundaries.md), including B1 and C4 acceptance limits, remain in force.
+Qualified Workers are intended to participate automatically without a separate opt-in. Execution still requires current Worker eligibility and protocol policy enforcement, fresh canonical balance checks, qualification/exit-state policy, shared transaction reservations, allowlisted DEX routes, actual quotes, slippage/deadlines, receipt reconciliation and an independent execution ledger referencing the immutable QSP hash. None is enabled by this calculator. Profit distribution remains separate. Existing [v0.1 boundaries](v0.1-boundaries.md), including B1 and C4 acceptance limits, remain in force.

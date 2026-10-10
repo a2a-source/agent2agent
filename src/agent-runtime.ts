@@ -10,6 +10,7 @@ import { ChatOpenAI } from "@langchain/openai";
 import type { z } from "zod";
 import { Llm } from "./llm.js";
 import { hash } from "./protocol.js";
+import { ToolJournal } from "./tool-journal.js";
 export interface ResearchTool {
   name: string;
   description: string;
@@ -86,6 +87,7 @@ export class AgentRuntime {
         model: c.model,
       });
     let transportError: unknown;
+    let toolError: unknown;
     let modelCalls = 0,
       toolCalls = 0,
       modelRounds = 0;
@@ -100,6 +102,7 @@ export class AgentRuntime {
       configuration: {
         baseURL: c.endpoint,
         fetch: async (url, init) => {
+          if (toolError) throw toolError;
           if (
             String(url) !==
             c.endpoint.replace(/\/$/, "") + "/chat/completions"
@@ -154,29 +157,25 @@ export class AgentRuntime {
     const wrapped = tools.map((t) =>
       tool(
         async (args: any) => {
-          if (signal?.aborted) throw signal.reason;
           const sequence = toolCalls++;
-          if (sequence >= this.config.maxToolCalls)
-            throw Error("Agent tool call limit exceeded");
-          const key = `${id}:tool:${sequence}`,
-            fingerprint = hash({ name: t.name, args });
-          let saved = db.get<{ fingerprint: string; output: unknown }>(
-            "agent-tool",
-            key,
-          );
-          if (saved && saved.fingerprint !== fingerprint)
-            throw Error("Agent tool request conflict");
-          if (!saved) {
-            const output = await t.run(args, signal);
-            saved = { fingerprint, output };
-            db.put("agent-tool", key, { ...saved, tool: t.name, input: args });
+          let output: unknown;
+          try {
+            output = await new ToolJournal(db).run(
+              { agent, runId: id, sequence, tool: t.name, input: args },
+              () => t.run(args, signal),
+              signal,
+              sequence >= this.config.maxToolCalls ? "TOOL_LIMIT" : undefined,
+            );
+          } catch (error) {
+            toolError ??= error;
+            throw error;
           }
           observations.push({
             tool: t.name,
             input: args,
-            output: saved.output,
+            output,
           });
-          return JSON.stringify(saved.output);
+          return JSON.stringify(output);
         },
         { name: t.name, description: t.description, schema: t.schema },
       ),
@@ -212,9 +211,13 @@ export class AgentRuntime {
         { signal, recursionLimit: this.config.maxToolRounds * 4 + 10 },
       );
     } catch (e) {
+      if (toolError) throw toolError;
       if (transportError) throw transportError;
       throw e;
     }
+    // LangChain can convert callback errors into ToolMessages. They must not
+    // authorize another paid model call or a successful result for this attempt.
+    if (toolError) throw toolError;
     if (signal?.aborted) throw signal.reason;
     const content = state.messages.at(-1)?.content;
     if (typeof content !== "string")
