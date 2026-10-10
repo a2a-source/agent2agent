@@ -81,3 +81,96 @@ test("batch asset news covers all symbols before spending reasoning rounds on pa
   );
   assert.equal(result.missing.length, 3);
 });
+test("batch asset news resolves a bounded exact-title publisher search for each result", async () => {
+  const discoveryQueries: string[] = [],
+    publisherQueries: string[] = [];
+  const search = (
+    name: string,
+    calls: string[],
+    fn: (query: string) => any,
+  ) => ({
+    name,
+    description: "test",
+    schema: z.object({ query: z.string() }),
+    run: async ({ query }: any) => {
+      calls.push(query);
+      return fn(query);
+    },
+  });
+  const tool = assetNewsTool(
+    ["BTCB", "ETH", "WBNB"],
+    search("news_search", discoveryQueries, () => ({
+      data: [
+        {
+          title: "Official protocol update",
+          url: "https://news.google.com/rss/articles/id",
+        },
+      ],
+      sources: [],
+      missing: [],
+    })) as any,
+    search("web_search", publisherQueries, (query) => ({
+      data: [
+        {
+          title: "Official protocol update",
+          url: "https://publisher.example/story",
+        },
+        {
+          title: "Unrelated sports article",
+          url: "https://publisher.example/sports",
+        },
+      ],
+      sources: [],
+      missing: [],
+    })) as any,
+  );
+  const result: any = await tool.run({ lookbackDays: 1 });
+  assert.equal(discoveryQueries.length, 3);
+  assert.equal(publisherQueries.length, 3);
+  assert(
+    result.data.every(
+      (row: any) => row.items[0].publisherCandidates.length === 1,
+    ),
+  );
+  assert(publisherQueries.every((q) => q === '"Official protocol update"'));
+  assert(
+    result.data.every(
+      (row: any) =>
+        row.items[0].publisherCandidates[0].url ===
+        "https://publisher.example/story",
+    ),
+  );
+  assert.equal(
+    result.sources.filter(
+      (source: any) => source.url === "https://publisher.example/story",
+    ).length,
+    3,
+  );
+});
+test("batch asset news preserves publisher lookup failures as missing evidence", async () => {
+  const search = (name: string, data: any[], missing: string[]) => ({
+    name,
+    description: "test",
+    schema: z.object({ query: z.string() }),
+    run: async () => ({ data, sources: [], missing }),
+  });
+  const tool = assetNewsTool(
+    ["BTCB", "ETH", "WBNB"],
+    search(
+      "news_search",
+      [{ title: "Headline", url: "https://news.google.com/rss/articles/id" }],
+      [],
+    ) as any,
+    search("web_search", [], ["search unavailable"]) as any,
+  );
+  const result: any = await tool.run({ lookbackDays: 1 });
+  assert.equal(result.missing.length, 6);
+  assert(
+    result.missing.every((item: string) => item.includes("publisher lookup")),
+  );
+  assert(
+    result.data.every((row: any) =>
+      row.items[0].publisherSearchMissing.includes("search unavailable"),
+    ),
+  );
+});

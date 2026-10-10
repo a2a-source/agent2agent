@@ -58,7 +58,7 @@
       {
         "id": "asset_news",
         "title": "Per-asset news",
-        "instruction": "For BTCB, ETH and WBNB separately: headline, publication time, URL, relevance; or no relevant item found after search. Label HEADLINE_ONLY or FULL_TEXT."
+        "instruction": "For each relevant BTCB, ETH and WBNB item, write one line with these fields in order: asset=...; status=...; headline=...; publishedAt=...; publisherUrl=...; relevance=.... Status must be exactly HEADLINE_ONLY or FULL_TEXT. Or explicitly say no relevant item found for an asset. FULL_TEXT requires nonempty fetched publisher text, and that exact publisherUrl must appear in this section evidenceRefs. HEADLINE_ONLY states the retrieval limitation. Copy discovered headline exactly. FULL_TEXT requires fetched pageTitle matching the headline and a nonempty body; cite fetch_page finalUrl as publisherUrl and evidenceRefs. Title missing/mismatch or challenge pages remain HEADLINE_ONLY. Verification status belongs only in this section’s status field."
       },
       {
         "id": "verification",

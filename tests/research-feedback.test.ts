@@ -137,3 +137,18 @@ test("missing market citation feedback distinguishes holdings and pools from req
   assert.match(feedback.instruction, /signalEvidenceRequirements/);
   assert.match(feedback.instruction, /portfolio/);
 });
+
+test("unsupported FULL_TEXT labels receive a focused correction and retry as invalid output", () => {
+  const error = Error("news FULL_TEXT claim lacks matching article evidence");
+  assert.equal(classifyResearchFailure(error), "INVALID_OUTPUT");
+  assert.match(validationFeedback(error).instruction, /HEADLINE_ONLY/);
+  assert.match(
+    validationFeedback(error).instruction,
+    /matching publisher candidate/,
+  );
+});
+test("malformed news verification rows are model errors, not source outages", () => {
+  const error = Error("news FULL_TEXT claim lacks a source-bound asset row");
+  assert.equal(classifyResearchFailure(error), "INVALID_OUTPUT");
+  assert.equal(validationFeedback(error).code, "ROLE_COVERAGE");
+});

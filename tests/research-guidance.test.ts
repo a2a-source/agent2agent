@@ -41,7 +41,10 @@ test("Master receives hash-bound tool facts and missing results, never unbounded
     db.close();
   }
 });
-import { validateRoleCoverage } from "../src/research-guidance.js";
+import {
+  validateNewsBodyClaims,
+  validateRoleCoverage,
+} from "../src/research-guidance.js";
 test("role coverage rejects premature news or trend completion but accepts attempted missing data", () => {
   const c: any = {
     universe: [
@@ -62,13 +65,291 @@ test("role coverage rejects premature news or trend completion but accepts attem
       ]),
     /coverage/,
   );
-  const news = ["Bitcoin", "Ethereum", "BNB Chain"].map((query) =>
-    observation("news_search", { query }),
+  const news = ["Bitcoin", "Ethereum", "BNB Chain"].map((query) => ({
+    tool: "news_search",
+    input: { query },
+    output: {
+      data: [{ title: "Update", url: "https://publisher.example/story" }],
+      missing: [],
+    },
+  }));
+  assert.throws(
+    () =>
+      validateRoleCoverage("news", c, [
+        ...news,
+        {
+          tool: "fetch_page",
+          input: { url: "https://news.google.com/rss/articles/id" },
+          output: {
+            data: "index wrapper",
+            sources: [{ url: "https://news.google.com/rss/articles/id" }],
+          },
+        },
+      ]),
+    /coverage/,
   );
   validateRoleCoverage("news", c, [
     ...news,
-    observation("fetch_page", { url: "https://example.com" }),
+    {
+      tool: "fetch_page",
+      input: { url: "https://publisher.example/story" },
+      output: {
+        data: "Article body",
+        sources: [{ url: "https://publisher.example/story" }],
+      },
+    },
   ]);
+  const failedPublisherFetch = {
+    tool: "fetch_page",
+    input: { url: "https://publisher.example/story" },
+    output: { data: null, sources: [], missing: ["page unavailable"] },
+  };
+  validateRoleCoverage("news", c, [...news, failedPublisherFetch]);
+  validateNewsBodyClaims(
+    "news",
+    {
+      summary: "Observed headline only",
+      recommendation: "Observe",
+      sections: [
+        {
+          id: "asset_news",
+          content:
+            "asset=BTCB; status=HEADLINE_ONLY; headline=Update; publishedAt=unknown; publisherUrl=https://publisher.example/story; relevance=unverified",
+          evidenceRefs: ["https://publisher.example/story"],
+        },
+      ],
+    },
+    [...news, failedPublisherFetch] as any,
+  );
+  const articleBody = {
+    tool: "fetch_page",
+    input: { url: "https://publisher.example/story" },
+    output: {
+      data: "Verified publisher article body",
+      pageTitle: "Update",
+      finalUrl: "https://publisher.example/story",
+      sources: [{ url: "https://publisher.example/story" }],
+    },
+  };
+  validateNewsBodyClaims(
+    "news",
+    {
+      summary: "Verified publisher article",
+      recommendation: "Consider context",
+      sections: [
+        {
+          id: "asset_news",
+          content:
+            "asset=BTCB; status=FULL_TEXT; headline=Update; publishedAt=unknown; publisherUrl=https://publisher.example/story; relevance=verified",
+          evidenceRefs: ["https://publisher.example/story"],
+        },
+      ],
+    },
+    [...news, articleBody] as any,
+  );
+  const multiAssetDiscovery = {
+    tool: "asset_news",
+    input: { lookbackDays: 1 },
+    output: {
+      data: ["BTCB", "ETH", "WBNB"].map((asset) => ({
+        asset,
+        items: [
+          {
+            title: `${asset} Update`,
+            publisherCandidates: [
+              { url: `https://${asset.toLowerCase()}.example/story` },
+            ],
+          },
+        ],
+      })),
+    },
+  };
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          summary: "Two reports claim verified body coverage",
+          recommendation: "Observe",
+          sections: [
+            {
+              id: "asset_news",
+              content: ["BTCB", "ETH"]
+                .map(
+                  (asset) =>
+                    `asset=${asset}; status=FULL_TEXT; headline=${asset} Update; publishedAt=unknown; publisherUrl=https://${asset.toLowerCase()}.example/story; relevance=verified`,
+                )
+                .join("\n"),
+              evidenceRefs: [
+                "https://btcb.example/story",
+                "https://eth.example/story",
+              ],
+            },
+          ],
+        },
+        [
+          multiAssetDiscovery,
+          {
+            tool: "fetch_page",
+            input: { url: "https://btcb.example/story" },
+            output: {
+              data: "BTCB publisher body",
+              sources: [{ url: "https://btcb.example/story" }],
+            },
+          },
+        ] as any,
+      ),
+    /matching article evidence/,
+  );
+  const sameAssetDiscovery = {
+    tool: "asset_news",
+    input: { lookbackDays: 1 },
+    output: {
+      data: [
+        {
+          asset: "BTCB",
+          items: [
+            {
+              title: "Story A",
+              publisherCandidates: [{ url: "https://publisher.example/a" }],
+            },
+            {
+              title: "Story B",
+              publisherCandidates: [{ url: "https://publisher.example/b" }],
+            },
+          ],
+        },
+      ],
+    },
+  };
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          summary: "Two stories reported",
+          recommendation: "Observe",
+          sections: [
+            {
+              id: "asset_news",
+              content: [
+                "asset=BTCB; status=FULL_TEXT; headline=Story A; publishedAt=unknown; publisherUrl=https://publisher.example/a; relevance=verified",
+                "asset=BTCB; status=FULL_TEXT; headline=Story B; publishedAt=unknown; publisherUrl=https://publisher.example/b; relevance=verified",
+              ].join("\n"),
+              evidenceRefs: [
+                "https://publisher.example/a",
+                "https://publisher.example/b",
+              ],
+            },
+          ],
+        },
+        [
+          sameAssetDiscovery,
+          {
+            tool: "fetch_page",
+            input: { url: "https://publisher.example/a" },
+            output: {
+              data: "Story A body",
+              sources: [{ url: "https://publisher.example/a" }],
+            },
+          },
+        ] as any,
+      ),
+    /matching article evidence/,
+  );
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          summary: "Only a headline is available",
+          recommendation: "Observe",
+          sections: [
+            {
+              id: "asset_news",
+              content:
+                "asset=BTCB; status=FULL_TEXT; headline=Update; publishedAt=unknown; publisherUrl=https://publisher.example/story; relevance=verified",
+              evidenceRefs: ["https://publisher.example/story"],
+            },
+          ],
+        },
+        [...news, failedPublisherFetch] as any,
+      ),
+    /matching article evidence/,
+  );
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          summary: "Unrelated body fetched",
+          recommendation: "Observe",
+          sections: [
+            {
+              id: "asset_news",
+              content:
+                "asset=BTCB; status=FULL_TEXT; headline=Update; publishedAt=unknown; publisherUrl=https://publisher.example/story; relevance=verified",
+              evidenceRefs: ["https://publisher.example/story"],
+            },
+          ],
+        },
+        [
+          ...news,
+          {
+            tool: "fetch_page",
+            input: { url: "https://unrelated.example/story" },
+            output: {
+              data: "unrelated article body",
+              sources: [{ url: "https://unrelated.example/story" }],
+            },
+          },
+        ] as any,
+      ),
+    /matching article evidence/,
+  );
+  assert.doesNotThrow(() =>
+    validateNewsBodyClaims(
+      "news",
+      {
+        summary:
+          "The FULL_TEXT claim was not verified, so this remains a headline only.",
+        recommendation: "Observe",
+        sections: [
+          {
+            id: "asset_news",
+            content: "BTCB: FULL_TEXT was not verified; status=HEADLINE_ONLY.",
+            evidenceRefs: [],
+          },
+        ],
+      },
+      [...news, failedPublisherFetch] as any,
+    ),
+  );
+  assert.throws(
+    () =>
+      validateNewsBodyClaims(
+        "news",
+        {
+          summary: "BTCB status=FULL_TEXT.",
+          recommendation: "Observe",
+          sections: [
+            {
+              id: "asset_news",
+              content:
+                "asset=BTCB; status=HEADLINE_ONLY; headline=Update; publishedAt=unknown; publisherUrl=https://publisher.example/story; relevance=unverified",
+              evidenceRefs: [],
+            },
+            {
+              id: "verification",
+              content: "BTCB: status=FULL_TEXT verified.",
+              evidenceRefs: [],
+            },
+          ],
+        },
+        [...news, articleBody] as any,
+      ),
+    /source-bound asset row/,
+  );
   assert.throws(() => validateRoleCoverage("market", c, []), /coverage/);
   validateRoleCoverage(
     "market",
@@ -92,6 +373,75 @@ test("all-empty news searches do not force a fabricated article URL", () => {
       output: { data: [], missing: ["no results"] },
     })),
   );
+});
+test("one broad news query cannot satisfy separate asset search and publisher coverage", () => {
+  const c: any = {
+    universe: [{ symbol: "BTCB" }, { symbol: "ETH" }, { symbol: "WBNB" }],
+  };
+  assert.throws(
+    () =>
+      validateRoleCoverage("news", c, [
+        {
+          tool: "news_search",
+          input: { query: "Bitcoin Ethereum BNB crypto news" },
+          output: {
+            data: [
+              { title: "Bitcoin update", url: "https://publisher.example/btc" },
+              {
+                title: "Ethereum update",
+                url: "https://publisher.example/eth",
+              },
+              { title: "BNB update", url: "https://publisher.example/bnb" },
+            ],
+          },
+        },
+        {
+          tool: "fetch_page",
+          input: { url: "https://publisher.example/btc" },
+          output: {
+            data: "Bitcoin article",
+            sources: [{ url: "https://publisher.example/btc" }],
+          },
+        },
+      ]),
+    /coverage/,
+  );
+});
+test("news must attempt at least one discovered publisher for every asset", () => {
+  const c: any = {
+    universe: [{ symbol: "BTCB" }, { symbol: "ETH" }, { symbol: "WBNB" }],
+  };
+  const assetNews = {
+    tool: "asset_news",
+    input: { lookbackDays: 1 },
+    output: {
+      data: ["BTCB", "ETH", "WBNB"].map((asset) => ({
+        asset,
+        items: [
+          {
+            publisherCandidates: [
+              { url: `https://${asset.toLowerCase()}.example/story` },
+            ],
+          },
+        ],
+      })),
+    },
+  };
+  const page = (asset: string) => ({
+    tool: "fetch_page",
+    input: { url: `https://${asset.toLowerCase()}.example/story` },
+    output: { data: null, sources: [], missing: ["page unavailable"] },
+  });
+  assert.throws(
+    () => validateRoleCoverage("news", c, [assetNews, page("BTCB")]),
+    /coverage/,
+  );
+  validateRoleCoverage("news", c, [
+    assetNews,
+    page("BTCB"),
+    page("ETH"),
+    page("WBNB"),
+  ]);
 });
 import { retainReportEvidence } from "../src/research-guidance.js";
 test("bounded evidence retains late cited pages and tool observations before caching report", () => {

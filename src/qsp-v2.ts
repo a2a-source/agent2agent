@@ -83,6 +83,54 @@ export const decisionSchema = z
     risks: strings.min(1),
   })
   .strict();
+
+function enforceHardRiskConditions(
+  signals: z.infer<typeof researchSignalSchema>[],
+  context: ResearchContext,
+) {
+  const value = context.portfolio.valueMicros;
+  if (value === null || BigInt(value) === 0n) return signals;
+  const totalTokens = context.universe.reduce((sum, asset) => {
+    const position = context.portfolio.positions.find(
+      (p) => p.address.toLowerCase() === asset.address.toLowerCase(),
+    );
+    return sum + BigInt(position?.valueMicros ?? "0");
+  }, 0n);
+  const totalOverLimit =
+    totalTokens * 10000n > BigInt(value) * BigInt(context.policy.maxTotalBps);
+  return signals.map((signal) => {
+    if (signal.action !== "SELL") return signal;
+    const position = context.portfolio.positions.find(
+      (p) => p.address.toLowerCase() === signal.asset.toLowerCase(),
+    );
+    const assetOverLimit =
+      BigInt(position?.valueMicros ?? "0") * 10000n >
+      BigInt(value) * BigInt(context.policy.maxAssetBps);
+    if (!assetOverLimit && !totalOverLimit) return signal;
+    const asset = context.universe.find(
+      (a) => a.address.toLowerCase() === signal.asset.toLowerCase(),
+    );
+    const conditions: string[] = [],
+      invalidation: string[] = [];
+    if (assetOverLimit && asset) {
+      conditions.push(
+        `Mandatory risk correction: reduce ${asset.symbol} exposure to at or below ${context.policy.maxAssetBps} bps while the verified portfolio remains above that limit.`,
+      );
+      invalidation.push(
+        `This ${asset.symbol} limit requirement clears only after a fresh portfolio snapshot confirms exposure at or below ${context.policy.maxAssetBps} bps; market price, trend, or indicators do not cancel it.`,
+      );
+    }
+    if (totalOverLimit) {
+      conditions.push(
+        `Mandatory risk correction: reduce configured-token exposure while its verified total remains above ${context.policy.maxTotalBps} bps.`,
+      );
+      invalidation.push(
+        `This total-exposure requirement clears only after a fresh portfolio snapshot confirms configured-token exposure at or below ${context.policy.maxTotalBps} bps; market price, trend, or indicators do not cancel it.`,
+      );
+    }
+    return { ...signal, conditions, invalidation };
+  });
+}
 export type ResearchReport = z.infer<typeof researchReportSchema> & {
   role: string;
   agent: string;
@@ -99,6 +147,7 @@ export function validateResearchDecision(
   const d = decisionSchema.parse(raw),
     roles = reports.map((r) => r.role),
     covered = d.decisions.map((x) => x.role);
+  d.signals = enforceHardRiskConditions(d.signals, context);
   if (
     new Set(roles).size !== roles.length ||
     new Set(covered).size !== covered.length ||
@@ -213,6 +262,7 @@ export const qspV2Schema = z
       .max(24),
     masterSummary: decisionSchema.omit({ signals: true, risks: true }),
     signals: z.array(researchSignalSchema).max(24),
+    policyTextVersion: z.literal("c4-hard-risk-conditions/1").optional(),
     risks: strings.min(1),
     reportTemplates: z.record(templateSchema).optional(),
     researchChecks: z
@@ -258,13 +308,22 @@ export const qspV2Schema = z
         );
       }
       assertResearchAssets(q.context.chainId, q.context.universe);
-      validateResearchDecision(
+      const validated = validateResearchDecision(
         { ...q.masterSummary, signals: q.signals, risks: q.risks },
         q.context,
         q.reports,
         q.createdAt,
         q.context.policy.dataMaxAgeMs ?? 600000,
       );
+      if (
+        q.policyTextVersion === "c4-hard-risk-conditions/1" &&
+        validated.signals.some(
+          (signal, i) =>
+            hash(signal.conditions) !== hash(q.signals[i]?.conditions) ||
+            hash(signal.invalidation) !== hash(q.signals[i]?.invalidation),
+        )
+      )
+        throw Error("hard-risk signal text is not canonical");
       const dataAt = q.context.markets.length
         ? Math.min(...q.context.markets.map((m) => m.asOf))
         : 0;

@@ -12,17 +12,23 @@ export function validationFeedback(error: unknown): ResearchFeedback {
         "Your root JSON must contain ALL required fields. Role report: summary (string), missing (array), evidenceIds (array), recommendation (string), uncertainty (string), sections (array of id/content/evidenceRefs). Returning only sections is invalid. Master requires summary, sections, decisions, disagreements, signals and risks. Follow requiredOutput exactly; no wrapper.",
     };
   const message = error instanceof Error ? error.message : "";
+  if (message.startsWith("news FULL_TEXT claim"))
+    return {
+      code: "ROLE_COVERAGE",
+      instruction:
+        "Use status=FULL_TEXT only in a standardized asset_news row. Copy the discovered headline exactly, including punctuation; cite fetch_page finalUrl in publisherUrl and evidenceRefs. A matching publisher candidate must have returned nonempty article text and a matching pageTitle. If the body/title is unavailable, mismatched or a challenge page, change status to HEADLINE_ONLY and state the limitation. Do not put status=FULL_TEXT in other sections.",
+    };
   if (message.startsWith("research coverage incomplete:"))
     return {
       code: "ROLE_COVERAGE",
       instruction:
-        "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs asset_news (covers all configured assets) or separate news_search for Bitcoin, Ethereum and BNB and an attempted fetch_page for an actual source; macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
+        "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs asset_news (covers all configured assets) or separate news_search for Bitcoin, Ethereum and BNB. For each asset with a publisherCandidates URL, attempt fetch_page on at least one of its publisher URLs. A Google News RSS/index wrapper is not a publisher article. FULL_TEXT is allowed only when fetch_page returned nonempty article body from that publisher URL; if the body is blocked or empty, mark HEADLINE_ONLY and state the failure. Macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
     };
   if (/policy|target|weight|holdings|capital|HOLD/i.test(message))
     return {
       code: "RISK_POLICY",
       instruction:
-        "Recompute targets from context.facts; respect per-asset and total limits, actual holdings and action direction. Hard policy cannot be cancelled by market conditions.",
+        "Recompute targets from context.facts; respect per-asset and total limits, actual holdings and action direction. Hard policy cannot be cancelled by market conditions. When a current policy breach calls for SELL, do not make SMA, price reversal, momentum, news or any other market signal a condition to defer it or an invalidation; the signed protocol canonicalizes these fields to the deterministic breach and compliance snapshot rule.",
     };
   if (message.includes("signal lacks fresh verified market evidence"))
     return {
@@ -54,6 +60,7 @@ export function classifyResearchFailure(error: unknown): ResearchFailure {
   if (error instanceof SyntaxError || (error as any)?.name === "ZodError")
     return "INVALID_OUTPUT";
   const message = error instanceof Error ? error.message : String(error);
+  if (message.startsWith("news FULL_TEXT claim")) return "INVALID_OUTPUT";
   if (
     /LLM HTTP|LLM request limit|LLM API key|fetch|LLM usage|LLM content|provider|uncertain LLM|timeout/i.test(
       message,

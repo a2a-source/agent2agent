@@ -28,6 +28,7 @@ import {
   toolEvidenceBrief,
   retainReportEvidence,
   validateRoleCoverage,
+  validateNewsBodyClaims,
 } from "./research-guidance.js";
 import { verifyQsp } from "./qsp.js";
 type Call = (
@@ -218,6 +219,7 @@ export async function buildResearchPackage(p: {
         if (config.agent.toolsEnabled)
           validateRoleCoverage(role.id, context, observations);
         const parsed = normalizeReport(raw, context);
+        validateNewsBodyClaims(role.id, parsed, observations);
         const extra: ResearchReport["additionalEvidence"] = [];
         for (const o of observations) {
           const e = evidence("web", `tool://${o.tool}`, null, o);
@@ -411,6 +413,7 @@ export async function buildResearchPackage(p: {
     reports,
     masterSummary,
     signals,
+    policyTextVersion: "c4-hard-risk-conditions/1",
     risks,
     reportTemplates: config.reportTemplates,
     researchChecks: researchChecks(context),

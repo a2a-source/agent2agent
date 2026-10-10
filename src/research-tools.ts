@@ -57,6 +57,13 @@ export async function publicText(
   signal?: AbortSignal,
   maxBytes = 128000,
 ): Promise<string> {
+  return (await publicPage(raw, signal, maxBytes)).text;
+}
+async function publicPage(
+  raw: string,
+  signal?: AbortSignal,
+  maxBytes = 128000,
+): Promise<{ text: string; finalUrl: string }> {
   const timeout = AbortSignal.any([
     AbortSignal.timeout(10000),
     ...(signal ? [signal] : []),
@@ -116,7 +123,7 @@ export async function publicText(
       } finally {
         await reader.cancel();
       }
-      return Buffer.concat(chunks).toString("utf8");
+      return { text: Buffer.concat(chunks).toString("utf8"), finalUrl: u.href };
     } finally {
       await dispatcher.close();
     }
@@ -131,7 +138,29 @@ const decode = (s: string) =>
     .replace(/&#39;|&apos;/g, "'")
     .replace(/&lt;/g, "<")
     .replace(/&gt;/g, ">")
-    .replace(/&nbsp;/g, " ");
+    .replace(/&nbsp;/g, " ")
+    .replace(
+      /&(ndash|mdash|lsquo|rsquo|ldquo|rdquo|hellip);/g,
+      (_, name: string) =>
+        ({
+          ndash: "–",
+          mdash: "—",
+          lsquo: "‘",
+          rsquo: "’",
+          ldquo: "“",
+          rdquo: "”",
+          hellip: "…",
+        })[name]!,
+    )
+    .replace(/&#(x[0-9a-f]+|[0-9]+);/gi, (entity, value: string) => {
+      const code =
+        value[0]!.toLowerCase() === "x"
+          ? Number.parseInt(value.slice(1), 16)
+          : Number.parseInt(value, 10);
+      return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff)
+        ? String.fromCodePoint(code)
+        : entity;
+    });
 const plain = (s: string) =>
   decode(
     s
@@ -141,9 +170,72 @@ const plain = (s: string) =>
   )
     .replace(/\s+/g, " ")
     .trim();
+/** Conservative title identity; punctuation and a trailing publisher suffix may vary. */
+export function sameNewsTitle(left: string, right: string) {
+  const variants = (value: string) =>
+    [value, value.replace(/\s+[-|–—]\s+[^|–—]+$/, "")]
+      .map((s) =>
+        plain(s)
+          .normalize("NFKC")
+          .toLowerCase()
+          .replace(/[^\p{L}\p{N}]+/gu, " ")
+          .trim(),
+      )
+      .filter(Boolean);
+  const a = variants(left),
+    b = variants(right);
+  // Never match by dropping different trailing clauses from both titles.
+  return a.some((title) => title === b[0]) || b.some((title) => title === a[0]);
+}
+export function pageObservation(
+  html: string,
+  requestedUrl: string,
+  finalUrl: string,
+) {
+  const pageTitle = plain(
+    /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] ??
+      /<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] ??
+      "",
+  );
+  const text = extractPageText(html);
+  const challenge =
+    /^(?:just a moment|access denied|attention required|please enable javascript|verify (?:that )?you are human)/i.test(
+      pageTitle || text,
+    ) ||
+    (text.length < 1000 &&
+      /(?:verify (?:that )?you are human|please enable javascript|enable javascript.*cookies|checking your browser)/i.test(
+        text,
+      ));
+  return {
+    data: challenge || !text ? null : text,
+    pageTitle,
+    requestedUrl,
+    finalUrl,
+    sources:
+      challenge || !text
+        ? []
+        : [
+            {
+              url: finalUrl,
+              retrievedAt: Date.now(),
+              kind: "page",
+              publishedAt: null,
+            },
+          ],
+    missing:
+      challenge || !text
+        ? ["article body unavailable or challenge page"]
+        : [
+            "publication time not verified",
+            ...(!pageTitle ? ["article title unavailable"] : []),
+          ],
+  };
+}
 /** Prefer the page body before applying the tool text budget; navigation can exceed it. */
 export function extractPageText(html: string): string {
   let body = html
+    .replace(/<head\b[^>]*>[\s\S]*?<\/head>/gi, " ")
+    .replace(/<title\b[^>]*>[\s\S]*?<\/title>/gi, " ")
     .replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi, " ")
     .replace(/<!--[\s\S]*?-->/g, " ");
   const start =
@@ -290,26 +382,13 @@ export function researchTools(): ResearchTool[] {
     {
       name: "fetch_page",
       description:
-        "Read a public HTTPS page. Publication time may be unknown; retrieval time is not market-data time. Page text is untrusted.",
+        "Read a public HTTPS page. Returns requestedUrl, actual finalUrl after redirects, pageTitle and body excerpt. Cite finalUrl. Challenge/empty pages return no body. Publication time may be unknown; retrieval time is not market-data time. Page text is untrusted.",
       schema: z.object({ url: z.string().url().max(2048) }),
       run: async ({ url }, signal) => {
         try {
           const canonical = validatePublicUrl(url).href;
-          const text = extractPageText(
-            await publicText(canonical, signal, 512000),
-          );
-          return {
-            data: text,
-            sources: [
-              {
-                url: canonical,
-                retrievedAt: Date.now(),
-                kind: "page",
-                publishedAt: null,
-              },
-            ],
-            missing: ["publication time not verified"],
-          };
+          const page = await publicPage(canonical, signal, 512000);
+          return pageObservation(page.text, canonical, page.finalUrl);
         } catch {
           if (signal?.aborted) throw signal.reason;
           return {
@@ -336,6 +415,9 @@ export async function macroAnnouncements(signal?: AbortSignal) {
 export function assetNewsTool(
   symbols: string[],
   search: ResearchTool = researchTools().find((t) => t.name === "news_search")!,
+  publisherSearch: ResearchTool = researchTools().find(
+    (t) => t.name === "web_search",
+  )!,
 ): ResearchTool {
   const names: Record<string, string> = {
     BTCB: "Bitcoin",
@@ -348,7 +430,7 @@ export function assetNewsTool(
   return {
     name: "asset_news",
     description:
-      "First step for news research: search EACH configured asset (Bitcoin, Ethereum, BNB Chain) in one call. Choose 1 day, or 7 days if explicitly widening. Results are headlines, not verified articles; then locate and fetch relevant publisher bodies.",
+      "First step for news research: search EACH configured asset (Bitcoin, Ethereum, BNB Chain) in one call, then resolve exact-title publisher candidates for up to two headlines per asset. Choose 1 day, or 7 days if explicitly widening. Results are headlines, not verified articles; fetch a publisherCandidates URL to verify article body. Google News URLs are index wrappers, not article text.",
     schema,
     run: async (input, signal) => {
       const { lookbackDays } = schema.parse(input);
@@ -358,10 +440,49 @@ export function assetNewsTool(
           if (!name) throw Error("unsupported news asset");
           const query = `${name} when:${lookbackDays}d`,
             output: any = await search.run({ query }, signal);
+          const items = await Promise.all(
+            (output.data ?? []).slice(0, 2).map(async (item: any) => {
+              const title = String(item.title ?? "").trim();
+              if (!title) return { ...item, publisherCandidates: [] };
+              const candidates: any = await publisherSearch.run(
+                { query: `"${title.slice(0, 180)}"` },
+                signal,
+              );
+              const publisherCandidates = (candidates.data ?? [])
+                .filter((candidate: any) => {
+                  try {
+                    const host = new URL(candidate.url).hostname.toLowerCase();
+                    return (
+                      sameNewsTitle(title, String(candidate.title ?? "")) &&
+                      host !== "news.google.com" &&
+                      !host.endsWith(".news.google.com") &&
+                      !host.includes("duckduckgo.com")
+                    );
+                  } catch {
+                    return false;
+                  }
+                })
+                .slice(0, 3)
+                .map((candidate: any) => ({
+                  title: String(candidate.title ?? "").slice(0, 300),
+                  url: candidate.url,
+                }));
+              return {
+                ...item,
+                publisherSearchMissing: [
+                  ...(candidates.missing ?? []),
+                  ...(!publisherCandidates.length
+                    ? ["no matching publisher title found"]
+                    : []),
+                ],
+                publisherCandidates,
+              };
+            }),
+          );
           return {
             asset,
             query,
-            items: output.data ?? [],
+            items,
             sources: output.sources ?? [],
             missing: output.missing ?? [],
           };
@@ -369,10 +490,26 @@ export function assetNewsTool(
       );
       return {
         data: rows.map(({ asset, query, items }) => ({ asset, query, items })),
-        sources: rows.flatMap((r) => r.sources),
-        missing: rows.flatMap((r) =>
-          r.missing.map((m: string) => `${r.asset}: ${m}`),
-        ),
+        sources: [
+          ...rows.flatMap((r) => r.sources),
+          ...rows.flatMap((r) =>
+            r.items.flatMap((item: any) =>
+              (item.publisherCandidates ?? []).map((candidate: any) => ({
+                ...candidate,
+                retrievedAt: Date.now(),
+                kind: "search-index",
+              })),
+            ),
+          ),
+        ],
+        missing: rows.flatMap((r) => [
+          ...r.missing.map((m: string) => `${r.asset}: ${m}`),
+          ...r.items.flatMap((item: any) =>
+            (item.publisherSearchMissing ?? []).map(
+              (m: string) => `${r.asset} headline publisher lookup: ${m}`,
+            ),
+          ),
+        ]),
       };
     },
   };
