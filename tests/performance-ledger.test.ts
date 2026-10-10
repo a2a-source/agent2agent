@@ -285,3 +285,56 @@ test("entirely unobserved roster is durable unknown and chain ambiguity is expli
     db.close();
   }
 });
+
+test("USD observation streams retain nullable boundaries without contaminating legacy currency", () => {
+  const db = new Store(":memory:");
+  try {
+    const ledger = new PerformanceLedger(db),
+      legacy = ledger.recordRound(fixture());
+    const input = {
+      ...fixture(),
+      version: "performance-input/2",
+      currency: "micro-USD",
+      observationId: "a".repeat(64),
+      terminalAt: 2,
+      sourceStatus: "FAILED",
+      rosterComplete: true,
+      openingBoundary: null,
+      closingBoundary: null,
+      windowStartMs: null,
+      windowEndMs: null,
+      perAgent: [],
+    };
+    const usd = ledger.recordRound(input);
+    assert.equal(usd.network.periodPnL, null);
+    assert.equal(
+      ledger.latest("round-1", 1)?.revisionHash,
+      legacy.revisionHash,
+    );
+    assert.equal(
+      ledger.latest("round-1", 1, "micro-USD")?.revisionHash,
+      usd.revisionHash,
+    );
+    assert.deepEqual(ledger.recordRound(input), usd);
+    assert.throws(
+      () =>
+        ledger.recordRound({
+          ...input,
+          observedAt: 4,
+          supersedes: legacy.revisionHash,
+        }),
+      /CONFLICT/,
+    );
+    assert.throws(
+      () =>
+        ledger.recordRound({
+          ...input,
+          roundId: "forged",
+          perAgent: fixture().perAgent,
+        }),
+      /INVALID/,
+    );
+  } finally {
+    db.close();
+  }
+});

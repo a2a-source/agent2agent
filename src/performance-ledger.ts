@@ -64,6 +64,37 @@ const inputSchema = z
       .optional(),
   })
   .strict();
+export const observationBoundarySchema = z
+  .object({
+    blockNumber: z.number().int().nonnegative().safe(),
+    blockHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
+    blockTimeMs: z.number().int().nonnegative().safe(),
+  })
+  .strict();
+export type ObservationBoundary = z.infer<typeof observationBoundarySchema>;
+const inputV2Schema = inputSchema.extend({
+  version: z.literal("performance-input/2"),
+  currency: z.literal("micro-USD"),
+  observationId: z.string().regex(/^[a-f0-9]{64}$/),
+  terminalAt: z.number().int().nonnegative().safe().nullable(),
+  sourceStatus: z.enum(["PUBLISHED", "FAILED"]),
+  rosterComplete: z.boolean(),
+  roster: inputSchema.shape.roster.min(0),
+  openingBoundary: observationBoundarySchema.nullable(),
+  closingBoundary: observationBoundarySchema.nullable(),
+  windowStartMs: z.number().int().nonnegative().safe().nullable(),
+  windowEndMs: z.number().int().nonnegative().safe().nullable(),
+  perAgent: z
+    .array(
+      agentSchema.extend({
+        openingSnapshotId: z.string().nullable().optional(),
+        closingSnapshotId: z.string().nullable().optional(),
+        proofIds: z.array(z.string()).optional(),
+        navDelta: signed.optional(),
+      }),
+    )
+    .max(1000),
+});
 export type PerformanceInput = z.input<typeof inputSchema>;
 type Amounts = z.output<typeof agentSchema>;
 export interface PeriodReturn {
@@ -105,6 +136,22 @@ export interface PerformanceRound {
     periodReturn: PeriodReturn | null;
   };
 }
+export type PerformanceRoundV2 = Omit<
+  PerformanceRound,
+  "version" | "currency" | "windowStartMs" | "windowEndMs"
+> & {
+  version: "performance-round/2";
+  currency: "micro-USD";
+  windowStartMs: number | null;
+  windowEndMs: number | null;
+  observationId: string;
+  terminalAt: number | null;
+  sourceStatus: "PUBLISHED" | "FAILED";
+  rosterComplete: boolean;
+  openingBoundary: ObservationBoundary | null;
+  closingBoundary: ObservationBoundary | null;
+};
+export type PerformanceRecord = PerformanceRound | PerformanceRoundV2;
 const invalid = (): never => {
   throw Error("PERFORMANCE_INVALID_INPUT");
 };
@@ -145,11 +192,41 @@ function derive(
   };
 }
 function parse(raw: unknown) {
-  const result = inputSchema.safeParse(raw);
+  const result = z.union([inputSchema, inputV2Schema]).safeParse(raw);
   if (!result.success) return invalid();
   const x = result.data;
-  if (x.windowEndMs <= x.windowStartMs || x.observedAt < x.windowEndMs)
-    invalid();
+  if (x.version === "performance-input/1") {
+    if (x.windowEndMs <= x.windowStartMs || x.observedAt < x.windowEndMs)
+      invalid();
+  } else {
+    if (
+      x.windowStartMs !== (x.openingBoundary?.blockTimeMs ?? null) ||
+      x.windowEndMs !== (x.closingBoundary?.blockTimeMs ?? null) ||
+      (x.windowEndMs !== null && x.observedAt < x.windowEndMs)
+    )
+      invalid();
+    for (const a of x.perAgent) {
+      if (
+        a.investments.length ||
+        (!x.openingBoundary && a.openingNAV !== null) ||
+        (!x.closingBoundary && a.closingNAV !== null)
+      )
+        invalid();
+      if (
+        a.cashflowComplete &&
+        (!x.openingBoundary ||
+          !x.closingBoundary ||
+          x.closingBoundary.blockNumber <= x.openingBoundary.blockNumber ||
+          x.closingBoundary.blockTimeMs <= x.openingBoundary.blockTimeMs ||
+          !a.openingSnapshotId ||
+          !a.closingSnapshotId ||
+          !a.proofIds?.length ||
+          a.netCapitalFlow !== "0" ||
+          a.hasCapitalFlows !== false)
+      )
+        invalid();
+    }
+  }
   const agents = new Set<string>(),
     wallets = new Set<string>();
   for (const r of x.roster) {
@@ -193,13 +270,13 @@ function parse(raw: unknown) {
 /** Accounting only: observations must come from a trusted adapter; this does not verify chain truth. */
 export class PerformanceLedger {
   constructor(private readonly db: Store) {}
-  recordRound(raw: unknown): PerformanceRound {
+  recordRound(raw: unknown): PerformanceRecord {
     const parsed = parse(raw),
       { supersedes, ...input } = parsed;
     const inputHash = hash(input);
     return this.db.transaction(() => {
       const previous = this.list(input.roundId).filter(
-        (r) => r.chainId === input.chainId,
+        (r) => r.chainId === input.chainId && r.currency === input.currency,
       );
       const replay = previous.find((r) => r.inputHash === inputHash);
       if (replay) return replay;
@@ -211,7 +288,13 @@ export class PerformanceLedger {
         throw Error("PERFORMANCE_REVISION_CONFLICT");
       const revision = (current?.revision ?? 0) + 1;
       const revisionHash = hash({
-        version: "performance-revision/1",
+        version:
+          input.version === "performance-input/1"
+            ? "performance-revision/1"
+            : "performance-revision/2",
+        ...(input.version === "performance-input/2"
+          ? { currency: input.currency }
+          : {}),
         inputHash,
         revision,
         supersedes: current?.revisionHash ?? null,
@@ -240,7 +323,10 @@ export class PerformanceLedger {
         knownPeriodPnL = known
           .reduce((sum, a) => sum + BigInt(a.periodPnL!), 0n)
           .toString();
-      const complete = known.length === agents.length;
+      const complete =
+        known.length === agents.length &&
+        (input.version === "performance-input/1" ||
+          (input.rosterComplete && agents.length > 0));
       const noFlows =
         complete &&
         agents.every(
@@ -249,8 +335,21 @@ export class PerformanceLedger {
       const opening = noFlows
         ? agents.reduce((s, a) => s + BigInt(a.openingNAV!), 0n)
         : 0n;
-      const record: PerformanceRound = {
-        version: "performance-round/1",
+      const record = {
+        version:
+          input.version === "performance-input/1"
+            ? "performance-round/1"
+            : "performance-round/2",
+        ...(input.version === "performance-input/2"
+          ? {
+              observationId: input.observationId,
+              terminalAt: input.terminalAt,
+              sourceStatus: input.sourceStatus,
+              rosterComplete: input.rosterComplete,
+              openingBoundary: input.openingBoundary,
+              closingBoundary: input.closingBoundary,
+            }
+          : {}),
         currency: input.currency,
         roundId: input.roundId,
         chainId: input.chainId,
@@ -292,12 +391,12 @@ export class PerformanceLedger {
       }
       this.db.insert("performance-input", inputHash, input);
       this.db.insert("performance-round", revisionHash, record);
-      return record;
+      return record as PerformanceRecord;
     });
   }
-  list(roundId?: string): PerformanceRound[] {
+  list(roundId?: string): PerformanceRecord[] {
     return this.db
-      .all<PerformanceRound>("performance-round")
+      .all<PerformanceRecord>("performance-round")
       .filter((r) => roundId === undefined || r.roundId === roundId)
       .sort(
         (a, b) =>
@@ -306,9 +405,15 @@ export class PerformanceLedger {
           a.revision - b.revision,
       );
   }
-  latest(roundId: string, chainId?: number): PerformanceRound | undefined {
+  latest(
+    roundId: string,
+    chainId?: number,
+    currency: "micro-USDT" | "micro-USD" = "micro-USDT",
+  ): PerformanceRecord | undefined {
     const rows = this.list(roundId).filter(
-      (r) => chainId === undefined || r.chainId === chainId,
+      (r) =>
+        r.currency === currency &&
+        (chainId === undefined || r.chainId === chainId),
     );
     if (chainId === undefined && new Set(rows.map((r) => r.chainId)).size > 1)
       throw Error("PERFORMANCE_CHAIN_REQUIRED");

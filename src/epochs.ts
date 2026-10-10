@@ -1,3 +1,4 @@
+import { freezeTerminalObservationRoster } from "./round-observation.js";
 import {
   createFairElection,
   verifyFairElection,
@@ -182,6 +183,7 @@ export class Epochs {
         );
       }
       this.db.put("epoch", id, e);
+      freezeTerminalObservationRoster(this.db, e);
       return e;
     });
   }
@@ -218,6 +220,7 @@ export class Epochs {
         output,
         signature,
       });
+      freezeTerminalObservationRoster(this.db, this.get(id));
     });
   }
   incident(id: string, agent: string, reason: string, at = Date.now()) {
