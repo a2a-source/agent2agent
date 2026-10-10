@@ -229,3 +229,63 @@ test("aborted bound reverted or partial sequence releases only after fresh recon
     x.db.close();
   }
 });
+
+test("native swap-only reservation binds value plus fee and settles without phantom approval", () => {
+  const x = fixture();
+  try {
+    const request = { to: token, data: "0x1234", value: 80n };
+    assert.throws(
+      () => x.ledger.reserve({ ...x.request, amounts: { native: "91" } }, 200),
+      /exceeds/,
+    );
+    const r = x.ledger.reserve(
+      {
+        ...x.request,
+        amounts: { native: "90" },
+        transactionIds: ["native-swap"],
+      },
+      200,
+    );
+    assert.throws(
+      () => x.ledger.bind(r.id, "native-swap", request, "11", 900, 210),
+      /budget/,
+    );
+    const binding = x.ledger.bind(r.id, "native-swap", request, "10", 900, 210);
+    assert.equal(binding.nativeValueWei, "80");
+    assert.throws(
+      () =>
+        x.ledger.bind(
+          r.id,
+          "native-swap",
+          { ...request, value: 79n },
+          "10",
+          900,
+          210,
+        ),
+      /conflict/,
+    );
+    x.db.put("transaction", "native-swap", {
+      id: "native-swap",
+      sender: wallet,
+      state: "CONFIRMED",
+      reservationId: r.id,
+      block: 11,
+      blockHash: "0x" + "bb".repeat(32),
+    });
+    const old = x.db.get<any>("portfolio-snapshot", "snapshot");
+    x.db.put("portfolio-snapshot", "after", {
+      ...old,
+      id: "after",
+      requestId: "after-capture",
+      observedAt: 300,
+      blockNumber: 12,
+    });
+    x.db.put("portfolio-capture", "after-capture", {
+      status: "DONE",
+      snapshotId: "after",
+    });
+    assert.equal(x.ledger.settle(r.id, "after", 310).status, "SETTLED");
+  } finally {
+    x.db.close();
+  }
+});

@@ -133,12 +133,12 @@ const inputSchema = z
 const fillSchema = z
   .object({
     id: ref,
-    version: z.enum(["dex-v2-fill/1", "dex-v2-fill/2"]),
+    version: z.enum(["dex-v2-fill/1", "dex-v2-fill/2", "dex-v2-fill/3"]),
     quoteId: ref,
     transactionId: ref,
     chainId: number.positive(),
     wallet: address,
-    inputAsset: address,
+    inputAsset: z.union([address, z.literal("native")]),
     outputAsset: address,
     amountIn: uint,
     amountOut: uint,
@@ -147,7 +147,15 @@ const fillSchema = z
     block: number,
     blockHash: z.string().regex(/^0x[0-9a-fA-F]{64}$/),
   })
-  .strict();
+  .strict()
+  .superRefine((fill, context) => {
+    if ((fill.version === "dex-v2-fill/3") !== (fill.inputAsset === "native"))
+      context.addIssue({
+        code: "custom",
+        message: "native fill version required",
+      });
+  });
+
 export type ExecutionFeedbackInput = z.input<typeof inputSchema>;
 type Input = z.output<typeof inputSchema>;
 export interface WalletExecutionObservation extends Omit<Input, "cashflow"> {
@@ -281,7 +289,7 @@ export class ExecutionFeedback {
         fill.id !== id ||
         id !==
           hash(
-            fill.version === "dex-v2-fill/2"
+            fill.version === "dex-v2-fill/2" || fill.version === "dex-v2-fill/3"
               ? [fill.version, fill.chainId, fill.hash, fill.blockHash]
               : [fill.version, fill.chainId, fill.hash],
           ) ||

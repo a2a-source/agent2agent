@@ -23,6 +23,7 @@ const configSchema = z
     routerCodeHash: digest,
     factoryCodeHash: digest,
     tokens: z.array(address).min(2).max(24),
+    wrappedNative: z.object({ address, codeHash: digest }).strict().optional(),
     slippageBps: z.number().int().min(0).max(50).default(50),
     maxImpactBps: z.number().int().min(0).max(50).default(50),
     quoteMaxAgeMs: z.number().int().min(1000).max(30000).default(30000),
@@ -30,6 +31,8 @@ const configSchema = z
   .strict();
 const abi = [
   "function factory() view returns(address)",
+  "function WETH() view returns(address)",
+  "function swapExactETHForTokens(uint256,address[],address,uint256) payable returns(uint256[])",
   "function getAmountsOut(uint256,address[]) view returns(uint256[])",
   "function swapExactTokensForTokens(uint256,uint256,address[],address,uint256) returns(uint256[])",
 ];
@@ -67,6 +70,10 @@ export function quoteBounds(
 }
 export interface V2Quote {
   id: string;
+  version?: "dex-v2-quote/2";
+  inputKind?: "NATIVE";
+  inputAsset?: "native";
+  wrappedNative?: { address: string; codeHash: string };
   configHash: string;
   chainId: number;
   router: string;
@@ -83,7 +90,7 @@ export interface V2Quote {
   createdAt: number;
   validUntil: number;
 }
-/** Exact-input ERC20 direct routes only. Quotes are not QSP authorization or gas/portfolio checks. */
+/** Exact-input ERC20 and explicitly verified native input direct routes. Quotes are not QSP authorization or gas/portfolio checks. */
 export class V2Dex {
   readonly config: z.infer<typeof configSchema>;
   readonly configHash: string;
@@ -96,7 +103,14 @@ export class V2Dex {
     this.config = configSchema.parse(config);
     if (new Set(this.config.tokens).size !== this.config.tokens.length)
       throw Error("duplicate tokens");
+    if (
+      this.config.wrappedNative &&
+      !this.config.tokens.includes(this.config.wrappedNative.address)
+    )
+      throw Error("wrapped native not allowlisted");
     this.configHash = hash(this.config);
+    if (this.config.wrappedNative && !db.get("dex-v2-config", this.configHash))
+      db.insert("dex-v2-config", this.configHash, this.config);
   }
   private async block(number: number) {
     const b = await this.provider.send("eth_getBlockByNumber", [
@@ -148,8 +162,13 @@ export class V2Dex {
     outputRaw: string,
     quantity: string,
   ): Promise<V2Quote> {
+    const isNative = inputRaw === "native";
+    if (isNative && !this.config.wrappedNative)
+      throw Error("native configuration required");
     const wallet = address.parse(walletRaw),
-      input = address.parse(inputRaw),
+      input = isNative
+        ? this.config.wrappedNative!.address
+        : address.parse(inputRaw),
       output = address.parse(outputRaw),
       amountIn = BigInt(
         z
@@ -179,6 +198,7 @@ export class V2Dex {
       String(actualFactory).toLowerCase() !== c.factory
     )
       throw Error("DEX deployment mismatch");
+    if (isNative) await verifyWrappedNative(this.provider, c, number);
     const factory = new Contract(
       c.factory,
       ["function getPair(address,address) view returns(address)"],
@@ -225,6 +245,14 @@ export class V2Dex {
     if (this.clock() >= validUntil)
       throw Error("quote expired during collection");
     const data = {
+      ...(isNative
+        ? {
+            version: "dex-v2-quote/2" as const,
+            inputKind: "NATIVE" as const,
+            inputAsset: "native" as const,
+            wrappedNative: c.wrappedNative!,
+          }
+        : {}),
       configHash: this.configHash,
       chainId: c.chainId,
       router: c.router,
@@ -263,16 +291,83 @@ export class V2Dex {
       this.clock() >= q.validUntil
     )
       throw Error("quote chain changed or expired");
-    return {
-      to: q.router,
-      data: new Interface(abi).encodeFunctionData("swapExactTokensForTokens", [
-        q.amountIn,
-        q.minimumOut,
-        q.path,
-        q.wallet,
-        Math.floor(q.validUntil / 1000),
-      ]),
-      value: 0n,
-    };
+    if (q.version || q.inputKind || q.inputAsset || q.wrappedNative) {
+      const original = nativeQuoteConfig(this.db, q);
+      await verifyWrappedNative(this.provider, original, q.block);
+    }
+    return v2QuoteRequest(q);
   }
+}
+/** No defaults are added to old quotes before integrity checks. */
+export function v2QuoteRequest(q: V2Quote) {
+  const native =
+    q.version === "dex-v2-quote/2" &&
+    q.inputKind === "NATIVE" &&
+    q.inputAsset === "native";
+  if (!native && (q.version || q.inputKind || q.inputAsset || q.wrappedNative))
+    throw Error("invalid quote input format");
+  return {
+    to: q.router,
+    data: new Interface(abi).encodeFunctionData(
+      native ? "swapExactETHForTokens" : "swapExactTokensForTokens",
+      native
+        ? [q.minimumOut, q.path, q.wallet, Math.floor(q.validUntil / 1000)]
+        : [
+            q.amountIn,
+            q.minimumOut,
+            q.path,
+            q.wallet,
+            Math.floor(q.validUntil / 1000),
+          ],
+    ),
+    value: native ? BigInt(q.amountIn) : 0n,
+  };
+}
+export function nativeQuoteConfig(db: Store, q: V2Quote) {
+  const raw = db.get<any>("dex-v2-config", q.configHash);
+  if (!raw || hash(raw) !== q.configHash)
+    throw Error("original native deployment unavailable");
+  const config = configSchema.parse(raw);
+  if (
+    q.version !== "dex-v2-quote/2" ||
+    q.inputKind !== "NATIVE" ||
+    q.inputAsset !== "native" ||
+    !config.wrappedNative ||
+    hash(q.wrappedNative) !== hash(config.wrappedNative) ||
+    q.chainId !== config.chainId ||
+    q.router !== config.router ||
+    q.factory !== config.factory ||
+    q.path.length !== 2 ||
+    q.path[0] !== config.wrappedNative.address ||
+    q.path[0] === q.path[1] ||
+    !q.path.every((a) => config.tokens.includes(a))
+  )
+    throw Error("native quote deployment mismatch");
+  return config;
+}
+export async function verifyWrappedNative(
+  provider: JsonRpcProvider,
+  config: z.infer<typeof configSchema>,
+  block: number,
+) {
+  const wrapped = config.wrappedNative;
+  if (!wrapped || !config.tokens.includes(wrapped.address))
+    throw Error("native deployment missing or not allowlisted");
+  const router = new Contract(config.router, abi, provider);
+  const [code, routerCode, factoryCode, weth, factory] = await Promise.all([
+    provider.getCode(wrapped.address, block),
+    provider.getCode(config.router, block),
+    provider.getCode(config.factory, block),
+    router.WETH!({ blockTag: block }),
+    router.factory!({ blockTag: block }),
+  ]);
+  if (
+    code === "0x" ||
+    keccak256(code) !== wrapped.codeHash ||
+    keccak256(routerCode) !== config.routerCodeHash ||
+    keccak256(factoryCode) !== config.factoryCodeHash ||
+    String(weth).toLowerCase() !== wrapped.address ||
+    String(factory).toLowerCase() !== config.factory
+  )
+    throw Error("native deployment mismatch");
 }

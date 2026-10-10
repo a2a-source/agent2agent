@@ -11,6 +11,107 @@ import {
   type PortfolioSnapshot,
 } from "./portfolio-snapshot.js";
 import type { TxRecord } from "./chain.js";
+import {
+  nativeQuoteConfig,
+  verifyWrappedNative,
+  v2QuoteRequest,
+  type V2Quote,
+} from "./dex-v2.js";
+import { recordV2Fill } from "./dex-v2-fill.js";
+import {
+  reservedRequestHash,
+  type ReservationBinding,
+} from "./reservation-signing.js";
+
+async function nativeSwapIntent(
+  db: Store,
+  provider: JsonRpcProvider,
+  row: TxRecord,
+  raw: Transaction,
+  opening: PortfolioSnapshot,
+) {
+  const reservation =
+    row.reservationId && db.get<any>("wallet-reservation", row.reservationId);
+  const link =
+    row.reservationId &&
+    db.get<any>("investment-execution-reservation", row.reservationId);
+  const job = link && db.get<any>("investment-execution-job", link.jobId);
+  const deployment =
+    job && db.get<any>("investment-execution-config", job.configHash);
+  const binding = db.get<ReservationBinding>(
+    "wallet-reservation-binding",
+    row.id,
+  );
+  const order = job?.orders?.find((o: any) => o.swapId === row.id);
+  const plan = job && db.get<any>("stable-wallet-plan", job.planId);
+  requireProof(
+    reservation && link && job && deployment && binding && order && plan,
+    "NATIVE_SWAP_BINDING_MISSING",
+  );
+  const quote = db.get<V2Quote>("dex-v2-quote", order.quoteId);
+  requireProof(quote, "NATIVE_QUOTE_MISSING");
+  const { id, ...body } = quote;
+  requireProof(
+    hash(body) === id && id === order.quoteId,
+    "NATIVE_QUOTE_INTEGRITY",
+  );
+  const config = nativeQuoteConfig(db, quote);
+  const request = v2QuoteRequest(quote);
+  const source = plan.orders[order.sourceOrderIndex];
+  requireProof(
+    hash(deployment) === job.configHash &&
+      hash(deployment.dex) === quote.configHash &&
+      hash(deployment.registry) === opening.registryHash &&
+      plan.snapshotId === opening.id &&
+      reservation.snapshotId === opening.id &&
+      reservation.planId === plan.id &&
+      link.planId === plan.id &&
+      job.reservationId === reservation.id &&
+      reservation.transactionIds.includes(row.id) &&
+      reservation.wallet === opening.wallet &&
+      reservation.chainId === opening.chainId &&
+      binding.reservationId === reservation.id &&
+      binding.wallet === opening.wallet &&
+      binding.chainId === opening.chainId &&
+      binding.requestHash === reservedRequestHash(request) &&
+      binding.nativeValueWei === String(raw.value) &&
+      order.version === "investment-execution-order/2" &&
+      order.inputKind === "NATIVE" &&
+      order.input === "native" &&
+      order.output === quote.path[1] &&
+      order.amountIn === quote.amountIn &&
+      source?.side === "SELL" &&
+      source.bucket === "BNB" &&
+      order.intendedNotionalMicros === source.notionalMicros &&
+      job.orders
+        .filter((o: any) => o.sourceOrderIndex === order.sourceOrderIndex)
+        .reduce((n: bigint, o: any) => n + BigInt(o.notionalMicros), 0n) <=
+        BigInt(source.notionalMicros) &&
+      raw.to?.toLowerCase() === quote.router &&
+      raw.from?.toLowerCase() === quote.wallet &&
+      raw.data === request.data &&
+      raw.value === request.value,
+    "NATIVE_SWAP_INTENT_MISMATCH",
+  );
+  const registered = deployment.registry.assets.filter(
+    (a: any) => a.bucket === "BNB" && a.asset !== "native",
+  );
+  requireProof(
+    registered.length === 1 &&
+      registered[0].asset === config.wrappedNative!.address &&
+      registered[0].decimals === 18,
+    "NATIVE_REGISTRY_MISMATCH",
+  );
+  await verifyWrappedNative(provider, config, quote.block);
+  const block = await rpc(() =>
+    provider.send("eth_getBlockByNumber", [
+      "0x" + quote.block.toString(16),
+      false,
+    ]),
+  );
+  requireProof(block?.hash === quote.blockHash, "NATIVE_QUOTE_BLOCK_MISMATCH");
+  return quote;
+}
 const transfer = new Interface([
   "event Transfer(address indexed from,address indexed to,uint256 value)",
 ]);
@@ -46,6 +147,34 @@ async function rpc<T>(read: () => Promise<T>): Promise<T> {
   } catch {
     throw new RpcUnavailable();
   }
+}
+/** Wrap transport reads only: adapter integrity failures must remain permanent UNKNOWN. */
+function nativeEvidenceProvider(provider: JsonRpcProvider): JsonRpcProvider {
+  const reads = new Set([
+    "call",
+    "getCode",
+    "getNetwork",
+    "getTransactionReceipt",
+    "send",
+  ]);
+  return new Proxy(provider, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target);
+      if (typeof key !== "string" || !reads.has(key)) return value;
+      return (...args: unknown[]) =>
+        rpc(async () => {
+          const result = await value.apply(target, args);
+          if (key !== "getTransactionReceipt" || !result) return result;
+          return new Proxy(result, {
+            get(receipt, property) {
+              if (property === "confirmations")
+                return () => rpc(() => receipt.confirmations());
+              return Reflect.get(receipt, property, receipt);
+            },
+          });
+        });
+    },
+  });
 }
 interface ProofLog {
   asset: string;
@@ -128,6 +257,7 @@ export async function proveExecutionNoExternalFlow(
     blockChecks: [],
   };
   let transient = false;
+  const nativeProvider = nativeEvidenceProvider(provider);
   try {
     requireProof(
       Number.isSafeInteger(confirmations) && confirmations > 0,
@@ -248,7 +378,8 @@ export async function proveExecutionNoExternalFlow(
     const tokenSet = new Set(
       registry.assets.filter((a) => a.asset !== "native").map((a) => a.asset),
     );
-    let gas = 0n;
+    let gas = 0n,
+      nativeSwapValue = 0n;
     for (const transactionId of transactionIds) {
       const row = db.get<TxRecord>("transaction", transactionId);
       requireProof(
@@ -282,10 +413,21 @@ export async function proveExecutionNoExternalFlow(
         raw.isSigned() &&
           raw.hash?.toLowerCase() === row.hash.toLowerCase() &&
           raw.from?.toLowerCase() === wallet &&
-          raw.chainId === BigInt(opening.chainId) &&
-          raw.value === 0n,
+          raw.chainId === BigInt(opening.chainId),
         "SIGNED_TRANSACTION_MISMATCH",
       );
+      let nativeQuote: V2Quote | undefined;
+      if (raw.value > 0n) {
+        body.version = "execution-cashflow-proof/2";
+        body.nativeSwaps ??= [];
+        nativeQuote = await nativeSwapIntent(
+          db,
+          nativeProvider,
+          row,
+          raw,
+          opening,
+        );
+      }
       requireProof(
         raw.nonce >= openingNonce &&
           raw.nonce < closingNonce &&
@@ -305,6 +447,30 @@ export async function proveExecutionNoExternalFlow(
           receipt.blockHash === row.blockHash,
         "RECEIPT_IDENTITY_MISMATCH",
       );
+      if (nativeQuote) {
+        const fill =
+          row.state === "CONFIRMED"
+            ? await recordV2Fill(
+                db,
+                nativeProvider,
+                nativeQuote!.id,
+                row.id,
+                confirmations,
+              )
+            : undefined;
+        const value = fill ? raw.value : 0n;
+        nativeSwapValue += value;
+        body.nativeSwaps.push({
+          transactionId,
+          quoteId: nativeQuote.id,
+          configHash: nativeQuote.configHash,
+          reservationId: row.reservationId,
+          bindingId: row.id,
+          fillId: fill?.id ?? null,
+          valueWei: String(value),
+          signedValueWei: String(raw.value),
+        });
+      }
       const block = integer(receipt.blockNumber);
       requireProof(
         block > from &&
@@ -370,6 +536,8 @@ export async function proveExecutionNoExternalFlow(
       }
     }
     body.gasWei = String(gas);
+    if (body.version === "execution-cashflow-proof/2")
+      body.nativeSwapValueWei = String(nativeSwapValue);
     await pin();
     for (let nonce = openingNonce; nonce < closingNonce; nonce++)
       requireProof(nonces.has(nonce), "NONCE_COVERAGE_INCOMPLETE");
@@ -390,7 +558,10 @@ export async function proveExecutionNoExternalFlow(
           balanceDelta: String(after - before),
           gasWei: String(gas),
         });
-        requireProof(after - before + gas === 0n, "NATIVE_FLOW_UNEXPLAINED");
+        requireProof(
+          after - before + gas + nativeSwapValue === 0n,
+          "NATIVE_FLOW_UNEXPLAINED",
+        );
         continue;
       }
       const logs = await Promise.all([

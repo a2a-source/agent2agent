@@ -2,6 +2,7 @@ import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { Interface, Transaction, Wallet, keccak256 } from "ethers";
 import { Store } from "../src/store.js";
+import { hash } from "../src/protocol.js";
 import { Budget } from "../src/budget.js";
 import { ConfirmedStablePlans } from "../src/confirmed-stable-plans.js";
 import {
@@ -27,6 +28,8 @@ const abi = new Interface([
   "function allowance(address,address) view returns(uint256)",
   "function approve(address,uint256) returns(bool)",
   "function factory() view returns(address)",
+  "function WETH() view returns(address)",
+  "function swapExactETHForTokens(uint256,address[],address,uint256) payable returns(uint256[])",
   "function getPair(address,address) view returns(address)",
   "function token0() view returns(address)",
   "function token1() view returns(address)",
@@ -40,6 +43,7 @@ async function setup(
   noAction = false,
   quietTarget = false,
   confirmations = 1,
+  nativeMode: false | "native" | "mixed" = false,
 ) {
   let now = Date.now();
   t.mock.method(Date, "now", () => now);
@@ -83,12 +87,17 @@ async function setup(
     assets.map((a) => [
       a.asset,
       a.asset === stable
-        ? (quietTarget ? 942n : noAction ? 1n : 1000n) * 10n ** 18n
+        ? (nativeMode ? 0n : quietTarget ? 942n : noAction ? 1n : 1000n) *
+          10n ** 18n
         : a.asset === "native"
-          ? 10n ** 15n
+          ? nativeMode
+            ? 1000n * 10n ** 18n
+            : 10n ** 15n
           : quietTarget && a.asset === researchAssets[2]!.address
             ? 86n * 10n ** 18n
-            : 0n,
+            : nativeMode === "mixed" && a.asset === researchAssets[2]!.address
+              ? 20n * 10n ** 18n
+              : 0n,
     ]),
   );
   const balancesByBlock = new Map<number, Map<string, bigint>>([
@@ -103,7 +112,8 @@ async function setup(
   const allowances = new Map<string, bigint>();
   let tip = 10,
     nonce = 0,
-    autoMine = true;
+    autoMine = true,
+    revertNext = false;
   const pending = new Map<string, Transaction>(),
     receipts = new Map<string, any>();
   const broadcasts: string[] = [];
@@ -111,7 +121,9 @@ async function setup(
     for (const [txHash, tx] of pending) {
       const parsed = abi.parseTransaction({ data: tx.data })!;
       const logs: any[] = [];
-      if (parsed.name === "approve")
+      if (revertNext) {
+        /* EVM revert transfers no value or tokens. */
+      } else if (parsed.name === "approve")
         allowances.set(tx.to!.toLowerCase(), BigInt(parsed.args[1]));
       else if (parsed.name === "swapExactTokensForTokens") {
         const input = String(parsed.args[2][0]).toLowerCase(),
@@ -123,6 +135,25 @@ async function setup(
         for (const [token, from, to] of [
           [input, owner, router],
           [output, router, owner],
+        ]) {
+          const event = abi.encodeEventLog(abi.getEvent("Transfer")!, [
+            from,
+            to,
+            amount,
+          ]);
+          logs.push({ address: token, topics: event.topics, data: event.data });
+        }
+      } else if (parsed.name === "swapExactETHForTokens") {
+        const wrapped = String(parsed.args[1][0]).toLowerCase(),
+          output = String(parsed.args[1][1]).toLowerCase();
+        assert.equal(wrapped, researchAssets[2]!.address);
+        const amount = tx.value,
+          pair = addr(102);
+        balances.set("native", balances.get("native")! - amount);
+        balances.set(output, balances.get(output)! + amount);
+        for (const [token, from, to] of [
+          [wrapped, router, pair],
+          [output, pair, owner],
         ]) {
           const event = abi.encodeEventLog(abi.getEvent("Transfer")!, [
             from,
@@ -147,7 +178,7 @@ async function setup(
         hash: txHash,
         from: owner,
         to: tx.to,
-        status: 1,
+        status: revertNext ? 0 : 1,
         blockNumber,
         blockHash: blockHash(blockNumber),
         logs,
@@ -155,6 +186,7 @@ async function setup(
         gasPrice: 1n,
         confirmations: async () => 2,
       });
+      revertNext = false;
       nonce++;
       pending.delete(txHash);
       tip++;
@@ -174,7 +206,9 @@ async function setup(
       };
     },
     getCode: async (target: string) =>
-      target.toLowerCase() === router || target.toLowerCase() === factory
+      target.toLowerCase() === router ||
+      target.toLowerCase() === factory ||
+      (nativeMode && target.toLowerCase() === researchAssets[2]!.address)
         ? "0x6000"
         : "0x",
     getTransactionCount: async (_wallet: string, tag: string | number) =>
@@ -233,6 +267,9 @@ async function setup(
         case "allowance":
           result = [allowances.get(target) ?? 0n];
           break;
+        case "WETH":
+          result = [researchAssets[2]!.address];
+          break;
         case "factory":
           result = [factory];
           break;
@@ -241,7 +278,9 @@ async function setup(
             addr(
               100 +
                 researchAssets.findIndex(
-                  (a) => a.address === String(parsed.args[1]).toLowerCase(),
+                  (a) =>
+                    a.address === String(parsed.args[0]).toLowerCase() ||
+                    a.address === String(parsed.args[1]).toLowerCase(),
                 ),
             ),
           ];
@@ -317,6 +356,12 @@ async function setup(
     },
     { now },
   );
+  if (nativeMode) {
+    f.allocation.targets.forEach((target) => {
+      target.targetWeightBps = 0;
+    });
+    await f.resign();
+  }
   if (quietTarget) {
     f.allocation.targets.forEach((target, i) => {
       target.targetWeightBps = i === 2 ? 850 : 0;
@@ -357,6 +402,14 @@ async function setup(
       routerCodeHash: keccak256("0x6000"),
       factoryCodeHash: keccak256("0x6000"),
       tokens: [stable, ...researchAssets.map((a) => a.address)],
+      ...(nativeMode
+        ? {
+            wrappedNative: {
+              address: researchAssets[2]!.address,
+              codeHash: keccak256("0x6000"),
+            },
+          }
+        : {}),
     },
     () => now,
   );
@@ -380,7 +433,9 @@ async function setup(
       {
         ...options,
         retryMs: 100,
-        maxTransactionFeeWei: options.maxTransactionFeeWei ?? "100000000000",
+        maxTransactionFeeWei:
+          options.maxTransactionFeeWei ??
+          (nativeMode ? "10000000000000" : "100000000000"),
       },
       gasReserveWei,
       () => now,
@@ -419,6 +474,41 @@ async function setup(
     mine,
     mineEmpty: () => {
       tip += 2;
+    },
+    freshRound: async () => {
+      now += 100;
+      tip += 2;
+      db.put("chain-state", "investor", {
+        ...db.get<any>("chain-state", "investor"),
+        observedAt: now,
+      });
+      const fresh = await collector.collect({
+        id: "fresh-opening",
+        agent: "investor",
+        wallet: owner,
+        gasReserveWei: "1000000",
+        reservationSource: "fresh",
+        reserved: Object.fromEntries(assets.map((a) => [a.asset, "0"])),
+      });
+      const next = await stableFixture(
+        "round2",
+        {
+          chainId: 97,
+          assets: researchAssets,
+          testnetProfile: {
+            kind: "bsc97-test-assets/1",
+            registryHash: researchAssetRegistryHash(researchAssets),
+          },
+        },
+        { now },
+      );
+      db.put("epoch", "round2", next.epoch);
+      now += 20;
+      const consumption = consumer.consume("round2", fresh.id, now);
+      return { consumption, fresh };
+    },
+    revertNext: () => {
+      revertNext = true;
     },
     setAutoMine: (value: boolean) => (autoMine = value),
     advance: (ms: number) => (now += ms),
@@ -544,7 +634,7 @@ test("a stale REVERTED journal row plus receipt RPC failure cannot release reser
   await x.tick();
   await x.tick();
   const job = x.job(),
-    approvalId = job.orders[0]!.approvalId;
+    approvalId = job.orders[0]!.approvalId!;
   const row = x.db.get<any>("transaction", approvalId);
   x.db.put("transaction", approvalId, { ...row, state: "REVERTED" });
   t.mock.method(x.provider, "getTransactionReceipt", async () => {
@@ -986,7 +1076,7 @@ test("recovery cannot weaken a job's confirmation count after a configuration up
   const x = await setup(t, false, false, 4);
   await x.tick();
   await x.tick();
-  const approvalId = x.job().orders[0]!.approvalId;
+  const approvalId = x.job().orders[0]!.approvalId!;
   x.collector.registry.confirmations = 1;
   x.restart({ enabled: false });
   await x.tick();
@@ -1175,4 +1265,187 @@ test("recovery cannot replace the opening snapshot gas exclusion with a modified
   assert.equal(x.db.all("execution-cashflow-proof").length, 0);
   x.db.put("portfolio-capture", x.opening.requestId, capture);
   assert.equal((await x.finish()).status, "DONE");
+});
+
+test("native-only signed reduction has one swap and canonical feedback; fresh signed round buys within cap without native refill", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  const plan: any = x.db.get("stable-wallet-plan", x.consumed.planId!);
+  const planBefore = hash(plan);
+  await x.tick();
+  assert.equal(x.job().orders.length, 1);
+  const order = x.job().orders[0]!;
+  assert.equal(order.input, "native");
+  assert.equal(order.approvalId, undefined);
+  assert.ok(BigInt(order.residualMicros!) > 0n);
+  const reservation: any = x.db.get(
+    "wallet-reservation",
+    x.job().reservationId!,
+  );
+  assert.deepEqual(reservation.transactionIds, [order.swapId]);
+  assert.equal(
+    BigInt(reservation.amounts.native),
+    BigInt(order.amountIn) + 10000000000000n,
+  );
+  const done = await x.finish();
+  assert.equal(done.status, "DONE", JSON.stringify(done));
+  assert.equal(x.broadcasts.length, 1);
+  assert.equal(
+    Transaction.from(x.broadcasts[0]!).value,
+    BigInt(order.amountIn),
+  );
+  assert.equal(x.db.all<any>("dex-v2-fill")[0]!.version, "dex-v2-fill/3");
+  assert.equal(x.db.all<any>("dex-v2-fill")[0]!.inputAsset, "native");
+  assert.equal(
+    x.db.get<any>("wallet-reservation", done.reservationId!).status,
+    "SETTLED",
+  );
+  assert.equal(
+    x.db
+      .all<any>("execution-feedback-wallet")
+      .find((r) => r.id === done.observationId)!.status,
+    "KNOWN",
+  );
+  assert.equal(hash(x.db.get("stable-wallet-plan", plan.id)), planBefore);
+  const { consumption, fresh } = await x.freshRound();
+  assert.equal(consumption.status, "PLANNED", consumption.reason);
+  const nextPlan: any = x.db.get("stable-wallet-plan", consumption.planId!);
+  assert.ok(nextPlan.orders.every((o: any) => o.side === "BUY"));
+  assert.ok(
+    nextPlan.orders.reduce(
+      (n: bigint, o: any) => n + BigInt(o.notionalMicros),
+      0n,
+    ) *
+      10n <=
+      BigInt(fresh.navMicros),
+  );
+  for (let i = 0; i < 30; i++) await x.tick();
+  const nextJob = x.db
+    .all<any>("investment-execution-job")
+    .find((j) => j.roundId === "round2")!;
+  assert.equal(nextJob.status, "DONE", JSON.stringify(nextJob));
+  assert.equal(x.broadcasts.length, 7);
+});
+test("mixed native reduction uses deterministic WBNB first and only one native transaction", async (t) => {
+  const x = await setup(t, false, false, 1, "mixed");
+  await x.tick();
+  const orders = x.job().orders;
+  assert.deepEqual(
+    orders.map((o) => o.inputKind),
+    ["ERC20", "NATIVE"],
+  );
+  const ids = orders.map((o) => o.swapId);
+  x.restart();
+  const done = await x.finish();
+  assert.equal(done.status, "DONE", JSON.stringify(done));
+  assert.deepEqual(
+    done.orders.map((o) => o.swapId),
+    ids,
+  );
+  assert.equal(x.broadcasts.length, 3);
+  assert.equal(
+    x.db
+      .all<any>("execution-feedback-wallet")
+      .find((r) => r.id === done.observationId)!.status,
+    "KNOWN",
+  );
+});
+
+test("pending native swap restarts after source expiry and disabled execution using original deployment", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  x.setAutoMine(false);
+  await x.tick();
+  await x.tick();
+  assert.equal(x.broadcasts.length, 1);
+  assert.equal(x.job().orders[0]!.approvalId, undefined);
+  x.advance(700000);
+  x.restart(
+    { enabled: false, maxTransactionFeeWei: "999999999999999" },
+    "999999999999999",
+  );
+  await x.tick();
+  assert.equal(x.job().status, "ACTIVE");
+  x.mine();
+  const done = await x.finish();
+  assert.equal(done.status, "DONE", JSON.stringify(done));
+  assert.equal(x.broadcasts.length, 1);
+  assert.equal(
+    x.db
+      .all<any>("execution-feedback-wallet")
+      .find((r) => r.id === done.observationId)!.status,
+    "KNOWN",
+  );
+});
+test("native signing refuses insufficient input plus protected gas and pending receipt cannot settle", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  await x.tick();
+  const amount = BigInt(x.job().orders[0]!.amountIn);
+  x.balances.set("native", amount + 1000000n);
+  await x.tick();
+  assert.equal(x.broadcasts.length, 0);
+  x.balances.set("native", 1000n * 10n ** 18n);
+  x.setAutoMine(false);
+  await x.tick();
+  assert.equal(x.broadcasts.length, 1);
+  x.restart();
+  await x.tick();
+  assert.equal(
+    x.db.get<any>("wallet-reservation", x.job().reservationId!).status,
+    "RESERVED",
+  );
+  x.mine();
+  const done = await x.finish();
+  assert.equal(done.status, "DONE", JSON.stringify(done));
+});
+test("native deployment cannot be substituted into an existing signed BNB registry", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  // Config parse alone cannot bestow native authority on an unrelated token.
+  const mismatch = new V2Dex(x.db, x.provider, {
+    chainId: 97,
+    router: addr(30),
+    factory: addr(31),
+    routerCodeHash: keccak256("0x6000"),
+    factoryCodeHash: keccak256("0x6000"),
+    tokens: [x.stable, addr(999)],
+    wrappedNative: { address: addr(999), codeHash: keccak256("0x6000") },
+  });
+  assert.throws(
+    () =>
+      new InvestmentExecution(
+        x.db,
+        x.consumer,
+        x.collector,
+        mismatch,
+        new Journal(x.db, x.provider, 97, false),
+        () => Wallet.createRandom(),
+      ),
+    /registered BNB/,
+  );
+});
+test("reverted native swap reconciles only gas and never records a successful fill", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  x.setAutoMine(false);
+  await x.tick();
+  await x.tick();
+  x.revertNext();
+  x.mine();
+  const done = await x.finish();
+  assert.equal(done.status, "ABORTED", JSON.stringify(done));
+  assert.equal(done.reason, "SWAP_REVERTED");
+  assert.equal(x.db.all("dex-v2-fill").length, 0);
+  assert.equal(
+    x.db
+      .all<any>("execution-feedback-wallet")
+      .find((r) => r.id === done.observationId)!.status,
+    "KNOWN",
+  );
+});
+
+test("fee-constrained native dust persists a clear unavailable outcome without signatures", async (t) => {
+  const x = await setup(t, false, false, 1, "native");
+  x.restart({ enabled: true, maxTransactionFeeWei: "120000000000000000000" });
+  await x.tick();
+  assert.equal(x.job().status, "ABORTED");
+  assert.equal(x.job().reason, "NATIVE_REDUCTION_UNAVAILABLE_OR_DUST");
+  assert.equal(x.broadcasts.length, 0);
+  assert.equal(x.db.all("wallet-reservation").length, 0);
 });

@@ -257,3 +257,35 @@ test("research summary bounds fill references while retaining full observation r
     db.close();
   }
 });
+
+test("native /3 feedback preserves canonical block identity and rejects legacy native masquerading", () => {
+  const db = new Store(":memory:");
+  try {
+    const input = setup(db),
+      old = db.get<any>("dex-v2-fill", input.fillIds[0]!);
+    const fill = {
+      ...old,
+      version: "dex-v2-fill/3",
+      inputAsset: "native",
+      id: hash(["dex-v2-fill/3", old.chainId, old.hash, old.blockHash]),
+    };
+    db.put("dex-v2-fill", fill.id, fill);
+    const feedback = new ExecutionFeedback(db);
+    const row = feedback.recordWallet({ ...input, fillIds: [fill.id] });
+    assert.equal(row.fills[0]!.inputAsset, "native");
+    assert.equal(row.periodPnlMicros, "100000");
+    db.put("dex-v2-fill", fill.id, {
+      ...fill,
+      blockHash: "0x" + "c".repeat(64),
+    });
+    assert.throws(
+      () =>
+        feedback.recordWallet({ ...input, roundId: "bad", fillIds: [fill.id] }),
+      /identity/,
+    );
+    db.put("dex-v2-fill", old.id, { ...old, inputAsset: "native" });
+    assert.throws(() => feedback.recordWallet({ ...input, roundId: "legacy" }));
+  } finally {
+    db.close();
+  }
+});

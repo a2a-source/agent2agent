@@ -2,12 +2,14 @@ import { Interface, Transaction, type JsonRpcProvider } from "ethers";
 import { Store } from "./store.js";
 import { hash } from "./protocol.js";
 import type { TxRecord } from "./chain.js";
-import type { V2Quote } from "./dex-v2.js";
+import {
+  nativeQuoteConfig,
+  verifyWrappedNative,
+  v2QuoteRequest,
+  type V2Quote,
+} from "./dex-v2.js";
 const transfer = new Interface([
   "event Transfer(address indexed from,address indexed to,uint256 value)",
-]);
-const swap = new Interface([
-  "function swapExactTokensForTokens(uint256,uint256,address[],address,uint256)",
 ]);
 export function transferDeltas(
   logs: readonly { address: string; topics: readonly string[]; data: string }[],
@@ -64,19 +66,15 @@ export async function recordV2Fill(
       }
     }
   }
-  const data = swap.encodeFunctionData("swapExactTokensForTokens", [
-    q.amountIn,
-    q.minimumOut,
-    q.path,
-    q.wallet,
-    Math.floor(q.validUntil / 1000),
-  ]);
+  const request = v2QuoteRequest(q);
+  const native = q.inputKind === "NATIVE";
+  if (native) await verifyWrappedNative(p, nativeQuoteConfig(db, q), q.block);
   if (
     raw.chainId !== BigInt(q.chainId) ||
     raw.from?.toLowerCase() !== q.wallet ||
     raw.to?.toLowerCase() !== q.router ||
-    raw.data !== data ||
-    raw.value !== 0n ||
+    raw.data !== request.data ||
+    raw.value !== request.value ||
     raw.hash !== t.hash
   )
     throw Error("signed trade mismatch");
@@ -100,19 +98,39 @@ export async function recordV2Fill(
   ]);
   if (!b || b.hash !== r.blockHash) throw Error("receipt not canonical");
   const amounts = transferDeltas(r.logs, q.wallet, q.path);
+  if (native) {
+    let funding = 0n;
+    for (const log of r.logs) {
+      if (log.address.toLowerCase() !== q.path[0]) continue;
+      const event = transfer.parseLog({
+        topics: [...log.topics],
+        data: log.data,
+      });
+      if (
+        event &&
+        String(event.args[0]).toLowerCase() === q.router &&
+        String(event.args[1]).toLowerCase() === q.pair
+      )
+        funding += BigInt(event.args[2]);
+    }
+    if (funding !== BigInt(q.amountIn) || amounts.input !== 0n)
+      throw Error("native pair funding mismatch");
+    amounts.input = funding;
+  }
   if (
     amounts.input !== BigInt(q.amountIn) ||
     amounts.output < BigInt(q.minimumOut)
   )
     throw Error("fill quantity mismatch");
+  const version = native ? "dex-v2-fill/3" : "dex-v2-fill/2";
   const result = {
-    id: hash(["dex-v2-fill/2", q.chainId, t.hash, r.blockHash]),
-    version: "dex-v2-fill/2",
+    id: hash([version, q.chainId, t.hash, r.blockHash]),
+    version,
     quoteId,
     transactionId,
     chainId: q.chainId,
     wallet: q.wallet,
-    inputAsset: q.path[0]!,
+    inputAsset: native ? "native" : q.path[0]!,
     outputAsset: q.path[1]!,
     amountIn: amounts.input.toString(),
     amountOut: amounts.output.toString(),

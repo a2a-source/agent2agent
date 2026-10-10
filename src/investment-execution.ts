@@ -41,17 +41,34 @@ export interface ExecutionOrder {
   input: string;
   output: string;
   amountIn: string;
-  approvalId: string;
+  approvalId?: string;
+  version?: "investment-execution-order/2";
+  inputKind?: "ERC20" | "NATIVE";
+  sourceOrderIndex?: number;
+  intendedNotionalMicros?: string;
+  residualMicros?: string;
   swapId: string;
   quoteId?: string;
   fillId?: string;
 }
-/** Use confirmed oracle units. Native currency requires a separate wrapping adapter. */
+class NativeAllocationUnavailable extends Error {}
+export interface NativeCompilation {
+  wrappedNative: string;
+  maxTransactionFeeWei: string;
+  minTradeMicros: string;
+  maxGasBps: number;
+  operatingFeeWei?: string;
+}
+export const executionTransactionIds = (o: ExecutionOrder): string[] =>
+  o.approvalId ? [o.approvalId, o.swapId] : [o.swapId];
+/** Legacy compilation remains unchanged unless native deployment is explicitly enabled. */
 export function compileExecutionOrders(
   plan: Pick<Plan, "orders">,
   snapshot: PortfolioSnapshot,
   registry: Registry,
+  native?: NativeCompilation,
 ): ExecutionOrder[] {
+  if (native) return compileNativeOrders(plan, snapshot, registry, native);
   const stable = registry.assets.filter(
     (a) => a.bucket === "STABLE" && a.asset !== "native",
   );
@@ -85,6 +102,134 @@ export function compileExecutionOrders(
     };
   });
 }
+/** Allocate reductions beneath the immutable source order; reserve all possible fees first. */
+function compileNativeOrders(
+  plan: Pick<Plan, "orders">,
+  snapshot: PortfolioSnapshot,
+  registry: Registry,
+  options: NativeCompilation,
+): ExecutionOrder[] {
+  const wrapped = registry.assets.filter(
+    (a) => a.bucket === "BNB" && a.asset !== "native",
+  );
+  if (
+    wrapped.length !== 1 ||
+    wrapped[0]!.asset !== options.wrappedNative ||
+    wrapped[0]!.decimals !== 18
+  )
+    throw Error("native deployment differs from registered BNB");
+  const native = snapshot.holdings.find((h) => h.asset === "native");
+  if (!native || BigInt(native.priceMicros) <= 0n)
+    throw Error("native valuation missing");
+  const maxCount = plan.orders.reduce(
+    (n, o) => n + (o.side === "SELL" && o.bucket === "BNB" ? 3 : 2),
+    0,
+  );
+  const fees =
+    BigInt(options.maxTransactionFeeWei) * BigInt(maxCount) +
+    BigInt(options.operatingFeeWei ?? "0");
+  const available = new Map(
+    snapshot.holdings.map((h) => [
+      h.asset,
+      BigInt(h.balance) - BigInt(h.reserved) - BigInt(h.gasExcluded),
+    ]),
+  );
+  const nativeBeforeFees = available.get("native")!;
+  available.set(
+    "native",
+    nativeBeforeFees > fees ? nativeBeforeFees - fees : 0n,
+  );
+  const result: ExecutionOrder[] = [];
+  const economic = (value: bigint, count: number) => {
+    const gas =
+      (BigInt(options.maxTransactionFeeWei) *
+        BigInt(count) *
+        BigInt(native.priceMicros) +
+        10n ** 18n -
+        1n) /
+      10n ** 18n;
+    return (
+      value >= BigInt(options.minTradeMicros) &&
+      gas * 10000n <= value * BigInt(options.maxGasBps)
+    );
+  };
+  for (const [index, source] of plan.orders.entries()) {
+    const start = result.length;
+    const intended = BigInt(source.notionalMicros);
+    if (source.side !== "SELL" || source.bucket !== "BNB") {
+      const [old] = compileExecutionOrders(
+        { orders: [source] },
+        snapshot,
+        registry,
+      );
+      if (!old || BigInt(old.amountIn) > (available.get(old.input) ?? 0n))
+        throw Error("insufficient input units");
+      if (!economic(intended, 2)) throw Error("uneconomic execution leg");
+      available.set(
+        old.input,
+        available.get(old.input)! - BigInt(old.amountIn),
+      );
+      result.push({
+        ...old,
+        version: "investment-execution-order/2",
+        inputKind: "ERC20",
+        sourceOrderIndex: index,
+        intendedNotionalMicros: source.notionalMicros,
+        residualMicros: "0",
+        approvalId: `${index}:${old.input}:erc20:approve`,
+        swapId: `${index}:${old.input}:erc20:swap`,
+      });
+      continue;
+    }
+    const stable = registry.assets.filter(
+      (a) => a.bucket === "STABLE" && a.asset !== "native",
+    );
+    if (stable.length !== 1) throw Error("one reserve asset required");
+    const wh = snapshot.holdings.find((h) => h.asset === options.wrappedNative);
+    if (!wh || BigInt(wh.priceMicros) <= 0n)
+      throw Error("input valuation missing");
+    const combined =
+      (available.get(options.wrappedNative)! * BigInt(wh.priceMicros) +
+        nativeBeforeFees * BigInt(native.priceMicros)) /
+      10n ** 18n;
+    if (intended > combined) throw Error("insufficient combined input units");
+    let remaining = intended;
+    for (const asset of [options.wrappedNative, "native"]) {
+      const h = snapshot.holdings.find((h) => h.asset === asset)!;
+      const price = BigInt(h.priceMicros);
+      const desired = (remaining * 10n ** 18n) / price;
+      const capacity = available.get(asset) ?? 0n;
+      const amount = desired < capacity ? desired : capacity;
+      const actual = (amount * price) / 10n ** 18n;
+      const isNative = asset === "native";
+      if (amount <= 0n || actual <= 0n || !economic(actual, isNative ? 1 : 2))
+        continue;
+      result.push({
+        ...source,
+        version: "investment-execution-order/2",
+        inputKind: isNative ? "NATIVE" : "ERC20",
+        sourceOrderIndex: index,
+        intendedNotionalMicros: source.notionalMicros,
+        residualMicros: "0",
+        notionalMicros: String(actual),
+        input: asset,
+        output: stable[0]!.asset,
+        amountIn: String(amount),
+        ...(isNative ? {} : { approvalId: `${index}:${asset}:erc20:approve` }),
+        swapId: `${index}:${asset}:${isNative ? "native" : "erc20"}:swap`,
+      });
+      available.set(asset, capacity - amount);
+      remaining -= actual;
+    }
+    if (result.length === start)
+      throw new NativeAllocationUnavailable(
+        "native reduction unavailable or dust",
+      );
+    for (const leg of result.slice(start))
+      leg.residualMicros = String(remaining);
+  }
+  return result;
+}
 export interface ExecutionJob {
   id: string;
   planId: string;
@@ -106,6 +251,8 @@ export interface ExecutionJob {
   closingSnapshotId?: string;
   observationId?: string;
   configHash: string;
+  compilerVersion?: "investment-execution-compiler/2";
+  operatingFeeWei?: string;
 }
 /** Durable bounded-step coordinator. A pending signed intent is reconciled, never re-created. */
 export class InvestmentExecution {
@@ -133,6 +280,17 @@ export class InvestmentExecution {
       journal.chainId !== consumer.chainId
     )
       throw Error("execution chain mismatch");
+    if (dex.config.wrappedNative) {
+      const bnb = collector.registry.assets.filter(
+        (a) => a.bucket === "BNB" && a.asset !== "native",
+      );
+      if (
+        bnb.length !== 1 ||
+        bnb[0]!.asset !== dex.config.wrappedNative.address ||
+        bnb[0]!.decimals !== 18
+      )
+        throw Error("native deployment differs from registered BNB");
+    }
     this.configHash = hash({
       registry: collector.registry,
       dex: dex.config,
@@ -288,16 +446,27 @@ export class InvestmentExecution {
       plan,
       snapshot,
       this.collector.registry,
+      this.dex.config.wrappedNative
+        ? {
+            wrappedNative: this.dex.config.wrappedNative.address,
+            maxTransactionFeeWei: this.options.maxTransactionFeeWei,
+            minTradeMicros: plan.policy.minTradeMicros,
+            maxGasBps: plan.policy.maxGasBps,
+            operatingFeeWei: String(
+              BigInt(this.options.maxTransactionFeeWei) * 6n,
+            ),
+          }
+        : undefined,
     ).map((o) => ({
       ...o,
-      approvalId: hash([j.id, o.approvalId]),
+      ...(o.approvalId ? { approvalId: hash([j.id, o.approvalId]) } : {}),
       swapId: hash([j.id, o.swapId]),
     }));
     if (!orders.length) throw Error("empty execution");
     const native = snapshot.holdings.find((h) => h.asset === "native")!;
-    const gas =
+    const gas = (o: ExecutionOrder) =>
       (BigInt(this.options.maxTransactionFeeWei) *
-        2n *
+        BigInt(executionTransactionIds(o).length) *
         BigInt(native.priceMicros) +
         10n ** 18n -
         1n) /
@@ -305,14 +474,15 @@ export class InvestmentExecution {
     if (
       orders.some(
         (o) =>
-          gas * 10000n >
+          gas(o) * 10000n >
           BigInt(o.notionalMicros) * BigInt(plan.policy.maxGasBps),
       )
     )
       throw Error("gas exceeds economic limit");
     const amounts: Record<string, bigint> = {
       native:
-        BigInt(this.options.maxTransactionFeeWei) * BigInt(orders.length * 2),
+        BigInt(this.options.maxTransactionFeeWei) *
+        BigInt(orders.flatMap(executionTransactionIds).length),
     };
     for (const o of orders)
       amounts[o.input] = (amounts[o.input] ?? 0n) + BigInt(o.amountIn);
@@ -321,7 +491,7 @@ export class InvestmentExecution {
         {
           id: hash(["execution-reservation/1", j.id]),
           planId: plan.id,
-          transactionIds: orders.flatMap((o) => [o.approvalId, o.swapId]),
+          transactionIds: orders.flatMap(executionTransactionIds),
           amounts: Object.fromEntries(
             Object.entries(amounts).map(([a, n]) => [a, String(n)]),
           ),
@@ -342,6 +512,12 @@ export class InvestmentExecution {
         exposures: snapshot.exposures,
       });
       j.orders = orders;
+      if (this.dex.config.wrappedNative) {
+        j.compilerVersion = "investment-execution-compiler/2";
+        j.operatingFeeWei = String(
+          BigInt(this.options.maxTransactionFeeWei) * 6n,
+        );
+      }
       j.reservationId = reservation.id;
       j.cycleId = cycle.id;
       j.status = "ACTIVE";
@@ -542,7 +718,13 @@ export class InvestmentExecution {
       }
       try {
         this.initialize(j);
-      } catch {
+      } catch (error) {
+        if (error instanceof NativeAllocationUnavailable) {
+          j.status = "ABORTED";
+          j.reason = "NATIVE_REDUCTION_UNAVAILABLE_OR_DUST";
+          this.save(j);
+          return;
+        }
         // No signed intent exists before initialize commits. Retry temporary dependencies until source expiry.
         const p = this.db.get<Plan>("stable-wallet-plan", j.planId);
         if (
@@ -593,11 +775,13 @@ export class InvestmentExecution {
       this.save(j);
       return;
     }
-    const approval = this.db.get<TxRecord>("transaction", o.approvalId);
+    const approval = o.approvalId
+      ? this.db.get<TxRecord>("transaction", o.approvalId)
+      : undefined;
     if (approval) {
-      if (!(await this.final(o.approvalId, confirmations))) return;
+      if (!(await this.final(approval.id, confirmations))) return;
       if (
-        this.db.get<TxRecord>("transaction", o.approvalId)?.state === "REVERTED"
+        this.db.get<TxRecord>("transaction", approval.id)?.state === "REVERTED"
       ) {
         j.status = "RECONCILING";
         j.reason = "APPROVAL_REVERTED";
@@ -613,7 +797,7 @@ export class InvestmentExecution {
       this.save(j);
       return;
     }
-    if (!approval) {
+    if (o.approvalId && !approval) {
       const request = {
         to: o.input,
         data: erc20.encodeFunctionData("approve", [
@@ -676,7 +860,7 @@ export class InvestmentExecution {
       const native = s.holdings.find((h) => h.asset === "native")!;
       const gasMicros =
         (BigInt(this.options.maxTransactionFeeWei) *
-          2n *
+          BigInt(executionTransactionIds(o).length) *
           BigInt(native.priceMicros) +
           10n ** 18n -
           1n) /
@@ -736,7 +920,10 @@ export class InvestmentExecution {
     allowance: boolean,
   ) {
     const provider = this.dex.provider,
-      token = new Contract(o.input, erc20, provider);
+      token =
+        o.inputKind === "NATIVE"
+          ? undefined
+          : new Contract(o.input, erc20, provider);
     const plan = this.db.get<Plan>("stable-wallet-plan", j.planId)!;
     const snapshot = this.db.get<PortfolioSnapshot>(
       "portfolio-snapshot",
@@ -749,8 +936,8 @@ export class InvestmentExecution {
     if (sourceBlock?.hash !== snapshot.blockHash)
       throw Error("source snapshot reorged");
     const [balance, permitted, latest, pending, native] = await Promise.all([
-      token.balanceOf!(j.wallet),
-      allowance
+      token ? token.balanceOf!(j.wallet) : Promise.resolve(BigInt(o.amountIn)),
+      allowance && token
         ? token.allowance!(j.wallet, this.dex.config.router)
         : Promise.resolve(0n),
       provider.getTransactionCount(j.wallet, "latest"),
@@ -759,10 +946,12 @@ export class InvestmentExecution {
     ]);
     if (
       BigInt(balance) < BigInt(o.amountIn) ||
-      (allowance && BigInt(permitted) < BigInt(o.amountIn)) ||
+      (allowance && token && BigInt(permitted) < BigInt(o.amountIn)) ||
       latest !== pending ||
       native <
-        BigInt(this.gasReserveWei) + BigInt(this.options.maxTransactionFeeWei)
+        BigInt(this.gasReserveWei) +
+          BigInt(this.options.maxTransactionFeeWei) +
+          (o.inputKind === "NATIVE" ? BigInt(o.amountIn) : 0n)
     )
       throw Error("wallet preflight failed");
   }
@@ -770,7 +959,7 @@ export class InvestmentExecution {
     const original = this.recoverySettings(j);
     const confirmations = original.registry.confirmations;
     for (const o of j.orders)
-      for (const id of [o.approvalId, o.swapId])
+      for (const id of executionTransactionIds(o))
         if (
           this.db.get("transaction", id) &&
           !(await this.final(id, confirmations))
@@ -841,7 +1030,7 @@ export class InvestmentExecution {
       p.snapshotId,
       snapshot.id,
       j.orders
-        .flatMap((o) => [o.approvalId, o.swapId])
+        .flatMap(executionTransactionIds)
         .filter((id) => !!this.db.get("transaction", id)),
       confirmations,
     );
