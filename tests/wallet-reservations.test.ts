@@ -192,3 +192,40 @@ test("retryable reverted Journal entries cannot release reservations", () => {
     x.db.close();
   }
 });
+test("aborted bound reverted or partial sequence releases only after fresh reconciliation", () => {
+  const x = fixture();
+  try {
+    x.ledger.reserve(
+      { ...x.request, transactionIds: ["tx", "unsigned-swap"] },
+      200,
+    );
+    x.db.put("transaction", "tx", {
+      id: "tx",
+      sender: wallet,
+      state: "REVERTED",
+      block: 11,
+      blockHash: "0x" + "bb".repeat(32),
+      reservationId: "r",
+    });
+    assert.throws(() => x.ledger.abort("r", "snapshot", 300), /snapshot/);
+    const old = x.db.get<any>("portfolio-snapshot", "snapshot");
+    x.db.put("portfolio-snapshot", "after", {
+      ...old,
+      id: "after",
+      requestId: "after-capture",
+      observedAt: 300,
+      blockNumber: 12,
+    });
+    x.db.put("portfolio-capture", "after-capture", {
+      status: "DONE",
+      snapshotId: "after",
+    });
+    assert.equal(x.ledger.abort("r", "after", 310).status, "ABORTED");
+    assert.equal(
+      x.db.get<any>("wallet-reservation", "r").reconciliationSnapshotId,
+      "after",
+    );
+  } finally {
+    x.db.close();
+  }
+});

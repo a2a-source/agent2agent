@@ -1,3 +1,4 @@
+import { checkReservedSigning } from "./reservation-signing.js";
 import {
   type AbstractProvider,
   type Wallet,
@@ -19,6 +20,7 @@ export interface TxRecord {
   block?: number;
   blockHash?: string;
   maxFeeWei?: string;
+  reservationId?: string;
   hashes?: string[];
   recovery?: {
     attempts: number;
@@ -116,6 +118,10 @@ export class Journal {
         if (row.intentHash !== intentHash)
           throw Error("transaction intent conflict");
         if (row.state === "REVERTED") {
+          if (row.reservationId)
+            throw Error(
+              "reserved transaction reverted; terminal reconciliation required",
+            );
           const recovery = this.meta(row);
           if (Date.now() < recovery.nextAt) return row;
           if (
@@ -156,6 +162,16 @@ export class Journal {
             },
           };
           const tx = Transaction.from(row.raw);
+          const retryRequest = { to: tx.to, data: tx.data, value: tx.value };
+          checkReservedSigning(
+            this.db,
+            this.chainId,
+            id,
+            sender,
+            retryRequest,
+            tx.gasLimit * (tx.gasPrice ?? 0n),
+            Date.now(),
+          );
           const retrySigner = signer();
           if (retrySigner.address.toLowerCase() !== sender.toLowerCase())
             throw Error("signer mismatch");
@@ -176,7 +192,18 @@ export class Journal {
           row.hash = keccak256(raw);
           row.block = undefined;
           row.blockHash = undefined;
-          this.save(row);
+          this.db.transaction(() => {
+            checkReservedSigning(
+              this.db,
+              this.chainId,
+              id,
+              sender,
+              retryRequest,
+              tx.gasLimit * (tx.gasPrice ?? 0n),
+              Date.now(),
+            );
+            this.save(row!);
+          });
         }
         if (row.state === "CONFIRMED") {
           if (await this.receipt(row)) return row;
@@ -215,6 +242,16 @@ export class Journal {
           fees.gasPrice > BigInt(this.policy.maxGasPriceWei)
         )
           throw Error("transaction exceeds gas price budget");
+        const reservedFee = gasLimit * fees.gasPrice;
+        const binding = checkReservedSigning(
+          this.db,
+          this.chainId,
+          id,
+          sender,
+          request,
+          gasLimit * fees.gasPrice,
+          Date.now(),
+        );
         const w = signer();
         if (w.address.toLowerCase() !== sender.toLowerCase())
           throw Error("signer mismatch");
@@ -233,7 +270,14 @@ export class Journal {
           raw,
           hash: keccak256(raw),
           state: "READY",
-          maxFeeWei: this.policy.maxTransactionFeeWei,
+          maxFeeWei: binding
+            ? this.policy.maxTransactionFeeWei === undefined ||
+              BigInt(binding.maxFeeWei) <
+                BigInt(this.policy.maxTransactionFeeWei)
+              ? binding.maxFeeWei
+              : this.policy.maxTransactionFeeWei
+            : this.policy.maxTransactionFeeWei,
+          reservationId: binding?.reservationId,
         };
         this.db.transaction(() => {
           const lock = this.db.get<{ owner: string; expires: number }>(
@@ -251,6 +295,15 @@ export class Journal {
               )
           )
             throw Error("sender has pending transaction");
+          checkReservedSigning(
+            this.db,
+            this.chainId,
+            id,
+            sender,
+            request,
+            reservedFee,
+            Date.now(),
+          );
           this.db.insert("transaction", id, row);
         });
       }
@@ -345,6 +398,30 @@ export class Journal {
     return null;
   }
   private async retry(row: TxRecord, signer?: () => Wallet | HDNodeWallet) {
+    if (
+      this.db
+        .all<{ id: string; chainId: number; wallet: string; status: string }>(
+          "wallet-reservation",
+        )
+        .some(
+          (r) =>
+            r.chainId === this.chainId &&
+            r.wallet === row.sender.toLowerCase() &&
+            r.status === "RESERVED" &&
+            r.id !== row.reservationId,
+        )
+    ) {
+      this.defer(row, "WALLET_FUNDS_RESERVED", true);
+      return;
+    }
+    if (
+      row.reservationId &&
+      this.db.get<{ status: string }>("wallet-reservation", row.reservationId)
+        ?.status !== "RESERVED"
+    ) {
+      this.defer(row, "RESERVATION_TERMINAL", true);
+      return;
+    }
     if ((await this.provider.getNetwork()).chainId !== BigInt(this.chainId))
       throw Error("wrong chain");
     if (await this.receipt(row)) return;
@@ -388,7 +465,16 @@ export class Journal {
       this.save(row);
       return;
     }
+    let replacementFee: bigint | undefined;
+    const replacementRequest = { to: tx.to, data: tx.data, value: tx.value };
+    const binding = row.reservationId
+      ? this.db.get<{ validUntil: number }>(
+          "wallet-reservation-binding",
+          row.id,
+        )
+      : undefined;
     if (
+      (!row.reservationId || (binding && binding.validUntil > Date.now())) &&
       !halfOpen &&
       signer &&
       m.attempts >= (this.policy.bumpAfterAttempts ?? 3) &&
@@ -400,6 +486,15 @@ export class Journal {
         (row.maxFeeWei === undefined ||
           fee * tx.gasLimit <= BigInt(row.maxFeeWei))
       ) {
+        checkReservedSigning(
+          this.db,
+          this.chainId,
+          row.id,
+          row.sender,
+          replacementRequest,
+          fee * tx.gasLimit,
+          Date.now(),
+        );
         const w = signer();
         if (w.address.toLowerCase() !== row.sender.toLowerCase())
           throw Error("signer mismatch");
@@ -419,10 +514,23 @@ export class Journal {
         row.raw = raw;
         row.hash = keccak256(raw);
         m.feeBumps++;
+        replacementFee = fee * tx.gasLimit;
       }
     }
     m.attempts++;
-    this.defer(row, "PENDING"); // durable attempt/bytes before touching the transport
+    this.db.transaction(() => {
+      if (replacementFee !== undefined)
+        checkReservedSigning(
+          this.db,
+          this.chainId,
+          row.id,
+          row.sender,
+          replacementRequest,
+          replacementFee,
+          Date.now(),
+        );
+      this.defer(row, "PENDING"); // durable attempt/bytes before touching transport
+    });
     try {
       this.fence(row.sender);
       await this.provider.broadcastTransaction(row.raw);

@@ -1,3 +1,5 @@
+import type { TransactionRequest } from "ethers";
+import { bindReservedTransaction } from "./reservation-signing.js";
 import { z } from "zod";
 import { isAddress, ZeroAddress } from "ethers";
 import { Store } from "./store.js";
@@ -46,7 +48,7 @@ interface Reservation {
   amounts: Record<string, string>;
   transactionIds: string[];
   createdAt: number;
-  status: "RESERVED" | "CANCELLED" | "SETTLED";
+  status: "RESERVED" | "CANCELLED" | "SETTLED" | "ABORTED";
   finishedAt?: number;
   reconciliationSnapshotId?: string;
 }
@@ -196,10 +198,22 @@ export class WalletReservations {
     });
   }
   settle(id: string, snapshotId: string, now: number): Reservation {
+    return this.close(id, snapshotId, now, false);
+  }
+  abort(id: string, snapshotId: string, now: number): Reservation {
+    return this.close(id, snapshotId, now, true);
+  }
+  private close(
+    id: string,
+    snapshotId: string,
+    now: number,
+    aborted: boolean,
+  ): Reservation {
     time.parse(now);
+    const terminal = aborted ? "ABORTED" : "SETTLED";
     return this.db.transaction(() => {
       const r = this.required(id);
-      if (r.status === "SETTLED") {
+      if (r.status === terminal) {
         if (r.reconciliationSnapshotId !== snapshotId)
           throw Error("settlement conflict");
         return r;
@@ -211,13 +225,18 @@ export class WalletReservations {
         this.db.get<TxRecord>("transaction", t),
       );
       if (
-        txs.some(
-          (t) =>
-            !t ||
-            t.state !== "CONFIRMED" ||
-            !t.block ||
-            !t.blockHash ||
-            t.sender.toLowerCase() !== r.wallet,
+        txs.some((t) =>
+          !t
+            ? !aborted
+            : (t.state !== "CONFIRMED" &&
+                !(
+                  aborted &&
+                  t.state === "REVERTED" &&
+                  t.reservationId === r.id
+                )) ||
+              !t.block ||
+              !t.blockHash ||
+              t.sender.toLowerCase() !== r.wallet,
         )
       )
         throw Error("final journal receipts required");
@@ -228,14 +247,15 @@ export class WalletReservations {
         s.observedAt < r.createdAt ||
         txs.some(
           (t) =>
-            s.blockNumber < t!.block! ||
-            (s.blockNumber === t!.block && s.blockHash !== t!.blockHash),
+            t &&
+            (s.blockNumber < t.block! ||
+              (s.blockNumber === t.block && s.blockHash !== t.blockHash)),
         )
       )
         throw Error("snapshot does not reconcile receipts");
       const result: Reservation = {
         ...r,
-        status: "SETTLED",
+        status: terminal,
         finishedAt: now,
         reconciliationSnapshotId: snapshotId,
       };
@@ -246,6 +266,24 @@ export class WalletReservations {
       });
       return result;
     });
+  }
+  bind(
+    id: string,
+    transactionId: string,
+    request: TransactionRequest,
+    maxFeeWei: string,
+    validUntil: number,
+    now: number,
+  ) {
+    return bindReservedTransaction(
+      this.db,
+      id,
+      transactionId,
+      request,
+      maxFeeWei,
+      validUntil,
+      now,
+    );
   }
   private required(id: string) {
     const r = this.db.get<Reservation>("wallet-reservation", id);
