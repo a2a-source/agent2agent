@@ -1,6 +1,6 @@
 # Direct V2 DEX quotes and confirmed fills
 
-`V2Dex` provides direct ERC20-to-ERC20 and optional native-to-ERC20 exact-input quotes and transaction construction. It does not execute QSP, check Worker eligibility, allocate investment risk budgets or authorize signatures. The automatic planning Scheduler still produces reference plans only.
+`V2Dex` provides direct ERC20-to-ERC20 and optional native-to-ERC20 exact-input quotes and transaction construction. It does not execute QSP, check Worker eligibility, allocate investment risk budgets or authorize signatures. The planning stage produces reference plans; the separate [automatic execution coordinator](automatic-investment-execution.md) consumes eligible plans and uses this adapter for quotes and concrete transactions.
 
 Configuration explicitly supplies chain ID, router/factory addresses and code hashes, and allowed tokens. Quotes check deployed bytecode and the router's factory, resolve the direct pair through that factory, verify both token identities, and read reserves and router output at one block. The block hash is checked again before storing the quote. Every quote attempt has a durable success/failure record; successful quotes bind the configuration, wallet recipient, path, amounts, block and expiry.
 
