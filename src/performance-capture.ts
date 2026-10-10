@@ -1,3 +1,4 @@
+import type { RoundObservationService } from "./round-observation.js";
 import { Store } from "./store.js";
 import type { Epoch } from "./epochs.js";
 import type { Agent } from "./agents.js";
@@ -8,10 +9,12 @@ export class RoundPerformanceCapture {
   constructor(
     readonly db: Store,
     readonly chainId: number,
+    readonly observation?: RoundObservationService,
   ) {
     this.ledger = new PerformanceLedger(db);
   }
   tick(now = Date.now()) {
+    if (this.observation) return this.observation.tick();
     const epochs = this.db
       .all<Epoch>("epoch")
       .filter((e) => e.status === "PUBLISHED" || e.status === "FAILED")
@@ -26,7 +29,9 @@ export class RoundPerformanceCapture {
         missingPriorBoundary = existing.agents.some((a) =>
           a.missingReasons.includes("ROUND_END_TIME_UNKNOWN"),
         );
-        priorEnd = missingPriorBoundary ? undefined : existing.windowEndMs;
+        priorEnd = missingPriorBoundary
+          ? undefined
+          : (existing.windowEndMs ?? undefined);
         continue;
       }
       if (end > now) continue;

@@ -1,7 +1,7 @@
 import { InvestmentExecution } from "./investment-execution.js";
 import { V2Dex } from "./dex-v2.js";
 import type { EncryptedWallet } from "./wallet.js";
-import { RoundPerformanceCapture } from "./performance-capture.js";
+import { createRoundObservationCapture } from "./round-observation-runtime.js";
 import { InvestmentPlanning } from "./investment-planning.js";
 import {
   PortfolioCollector,
@@ -148,7 +148,12 @@ const maintenance = new WalletMaintenance(db, vault, {
   backupIntervalMs: config.recovery.backupIntervalMs,
   maxBackups: config.recovery.maxBackups,
 });
-const performance = new RoundPerformanceCapture(db, config.chain.id);
+const performance = createRoundObservationCapture(db, {
+  chainId: config.chain.id,
+  registry: config.investmentPlanning.registry,
+  provider: priceProvider,
+  executionEnabled: config.investmentExecution.enabled,
+});
 const minimumCompute = () =>
   llm.priceReady()
     ? llm.maximum() *

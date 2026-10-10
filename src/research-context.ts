@@ -1,3 +1,7 @@
+import {
+  roundObservationSummarySchema,
+  buildAccountingBrief,
+} from "./round-observation-context.js";
 import { z } from "zod";
 import { researchFacts } from "./research-facts.js";
 import { isAddress, formatUnits } from "ethers";
@@ -142,6 +146,7 @@ export const contextSchema = z
     universe: z.array(assetSchema).min(1).max(24),
     testnetProfile: testnetProfileSchema.optional(),
     executionFeedback: executionFeedbackSummarySchema.optional(),
+    roundObservation: roundObservationSummarySchema.optional(),
     portfolio: portfolioSchema,
     portfolioIdentity: z.object({
       wallet: z.string(),
@@ -203,6 +208,11 @@ export const contextSchema = z
   })
   .strict()
   .superRefine((c, ctx) => {
+    if (c.roundObservation && c.roundObservation.chainId !== c.chainId)
+      ctx.addIssue({
+        code: "custom",
+        message: "round observation chain mismatch",
+      });
     if (c.executionFeedback && c.executionFeedback.chainId !== c.chainId)
       ctx.addIssue({
         code: "custom",
@@ -340,7 +350,7 @@ export function compareContext(previous: any, current: any) {
       a != null && b != null ? String(BigInt(b) - BigInt(a)) : null,
     investmentReturnBps: null,
     returnMissing:
-      "Cross-round value change is not investment return; verified cashflow and execution history unavailable",
+      "Raw cross-round value change alone is not investment return without cashflow proof; consult accountingBrief for independent verified accounting windows",
     positions: current.portfolio.positions.flatMap((p: any) => {
       const old = previous?.portfolio?.positions.find(
         (x: any) => x.address.toLowerCase() === p.address.toLowerCase(),
@@ -424,8 +434,10 @@ export function promptSnapshot(c: ResearchContext, role?: string) {
     chainId: c.chainId,
     ...(c.testnetProfile ? { testnetProfile: c.testnetProfile } : {}),
     units:
-      "Portfolio and market price/value/cost/PnL fields are USDT reference marks. executionFeedback retains exact micro-USD integers and is independent of those reference marks; NAV delta is not profit and UNKNOWN is not zero. Percent fields are percentages, not basis points. DEX liquidity is whole USD.",
+      "Portfolio and market price/value/cost/PnL fields are USDT reference marks. executionFeedback and roundObservation retain exact micro-USD integers and is independent of those reference marks; NAV delta is not profit and UNKNOWN is not zero. Percent fields are percentages, not basis points. DEX liquidity is whole USD.",
     ...(c.executionFeedback ? { executionFeedback: c.executionFeedback } : {}),
+    ...(c.roundObservation ? { roundObservation: c.roundObservation } : {}),
+    accountingBrief: buildAccountingBrief(c),
     portfolio: {
       status: c.portfolio.status,
       quoteCurrency: c.portfolio.quoteCurrency,

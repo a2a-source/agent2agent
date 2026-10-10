@@ -18,6 +18,7 @@ export class Scheduler {
   private runTask?: Promise<void>;
   private planningTask?: Promise<void>;
   private executionTask?: Promise<void>;
+  private accountingTask?: Promise<void>;
   async stop() {
     this.stopped = true;
     this.runner.cancel();
@@ -25,6 +26,7 @@ export class Scheduler {
     await this.runTask;
     await this.planningTask;
     await this.executionTask;
+    await this.accountingTask;
   }
   constructor(
     readonly runner: Runner,
@@ -45,19 +47,7 @@ export class Scheduler {
     });
     try {
       const db = this.runner.agents.db;
-      if (this.accounting) {
-        try {
-          await this.accounting.tick();
-          db.put("service-error", "performance-accounting", {
-            status: "HEALTHY",
-          });
-        } catch {
-          db.put("service-error", "performance-accounting", {
-            at: Date.now(),
-            reason: "ACCOUNTING_RETRY_PENDING",
-          });
-        }
-      }
+      this.startAccounting();
       if (this.stopped) return;
       if (this.watcher) {
         try {
@@ -244,22 +234,34 @@ export class Scheduler {
                 : "ROUND_FAILED_WAITING_FOR_TAKEOVER",
           });
         })
-        .finally(async () => {
-          try {
-            await this.accounting?.tick();
-          } catch {
-            db.put("service-error", "performance-accounting", {
-              at: Date.now(),
-              reason: "ACCOUNTING_RETRY_PENDING",
-            });
-          } finally {
-            this.runTask = undefined;
-          }
+        .finally(() => {
+          this.startAccounting();
+          this.runTask = undefined;
         });
     } finally {
       this.busy = false;
       this.resolveIdle?.();
       this.idle = undefined;
     }
+  }
+  private startAccounting() {
+    if (!this.accounting || this.accountingTask || this.stopped) return;
+    const db = this.runner.agents.db;
+    this.accountingTask = Promise.resolve()
+      .then(() => this.accounting!.tick())
+      .then(() => {
+        db.put("service-error", "performance-accounting", {
+          status: "HEALTHY",
+        });
+      })
+      .catch(() => {
+        db.put("service-error", "performance-accounting", {
+          at: Date.now(),
+          reason: "ACCOUNTING_RETRY_PENDING",
+        });
+      })
+      .finally(() => {
+        this.accountingTask = undefined;
+      });
   }
 }

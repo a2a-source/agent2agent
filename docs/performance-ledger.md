@@ -12,24 +12,33 @@ const round = ledger.recordRound({
   windowStartMs: 1000,
   windowEndMs: 2000,
   observedAt: 2100,
-  roster: [{ agentId: "worker-1", wallet: "0x0000000000000000000000000000000000000001" }],
-  perAgent: [{
-    agentId: "worker-1",
-    openingNAV: "100000000",
-    closingNAV: "121000000",
-    netCapitalFlow: "20000000",
-    cashflowComplete: true,
-    hasCapitalFlows: true,
-    missingReasons: [],
-    investments: [{
-      investmentId: "position-1",
-      openingNAV: null,
-      closingNAV: null,
-      netCapitalFlow: null,
-      cashflowComplete: false,
-      missingReasons: ["VALUATION_UNAVAILABLE"],
-    }],
-  }],
+  roster: [
+    {
+      agentId: "worker-1",
+      wallet: "0x0000000000000000000000000000000000000001",
+    },
+  ],
+  perAgent: [
+    {
+      agentId: "worker-1",
+      openingNAV: "100000000",
+      closingNAV: "121000000",
+      netCapitalFlow: "20000000",
+      cashflowComplete: true,
+      hasCapitalFlows: true,
+      missingReasons: [],
+      investments: [
+        {
+          investmentId: "position-1",
+          openingNAV: null,
+          closingNAV: null,
+          netCapitalFlow: null,
+          cashflowComplete: false,
+          missingReasons: ["VALUATION_UNAVAILABLE"],
+        },
+      ],
+    },
+  ],
 });
 ```
 
@@ -56,3 +65,19 @@ The application wires `RoundPerformanceCapture` into scheduler polling before LL
 Authenticated `GET /agents/:id/performance` returns up to100 stored revisions containing that Agent, with existing owner/admin access rules. `GET /network/performance` returns up to100 latest round aggregates without individual wallet/agent records. There is no public write/correction API; only trusted adapters call `recordRound`. Missing/unknown observations require an explicit new revision when real data becomes available; the capture job never overwrites them with zero.
 
 API history limits apply after chronological `windowEndMs` ordering, not string round-ID ordering. Unknown historical boundaries are not precise accounting intervals: fallback end time is marked `ROUND_END_TIME_UNKNOWN`, and the following round carries `ROUND_START_TIME_UNKNOWN` rather than inheriting that fallback as a confirmed opening boundary. `OPENING_BOUNDARY_BASELINE_ONLY` identifies the initial/uncertain baseline; real adapters must supply corrected windows together with actual values. A wallet created exactly at the recorded end is included. If its first interval would have zero duration, the unknown coverage record uses a one-millisecond envelope with the baseline flag; it is not a measured return interval.
+
+## Terminal observations in micro-USD
+
+Production and the source testnet harness now construct `createRoundObservationCapture`, independently of trading being enabled. It records every PUBLISHED or FAILED epoch, including null allocations, without creating a plan, reservation, signature, execution job or transaction. The old two-argument `RoundPerformanceCapture` constructor remains an explicit legacy placeholder mode with the v1 behavior described above.
+
+The observation path uses `performance-input/2` / `performance-round/2`, currency `micro-USD`. Streams are isolated by chain, round and currency; `latest(roundId, chainId)` still defaults to legacy micro-USDT, while USD callers explicitly supply `"micro-USD"`. Legacy records and hashes are unchanged. The API groups by currency and exposes observation IDs, nullable boundaries, terminal status/time and roster completeness. Never combine these USD figures with USDT reference marks.
+
+Each terminal transition freezes an additive full Agent/wallet roster without changing signed epoch content. Historical records without that roster carry `ROSTER_HISTORY_INCOMPLETE`; old unseen backlog also carries `HISTORIC_BOUNDARY_UNAVAILABLE`. Only the newest unseen event may establish a current baseline. Missing terminal times remain null. The first closing capture establishes a baseline; opening holdings come only from the immediately preceding observation's matching wallet/registry closing snapshot. Missing predecessors, changed registries, new wallets and nonadvancing blocks cannot invent a positive interval.
+
+`collectAt` reads all registered assets and native EOA holdings at one confirmed block. It verifies the pinned number/hash/time and canonical recheck, uses historical block time for oracle age, and retains actual read time and historical validity. Normal execution collection still requires current freshness. Accounting excludes no gas reserve or reserved capital: economic NAV includes all registered owned holdings. Raw partial observations remain durable after a failed asset read, but partial valuation never becomes zero NAV.
+
+Results cover actual confirmed **inter-observation windows**, often later than the research terminal event; they are not exact research-slot or strategy-attributed returns. No trade does not imply no return. Only a verified complete no-external-flow proof makes NAV delta PnL. Gas is reflected once in closing NAV. Full network PnL requires every frozen wallet over common boundaries plus complete roster history. Known subtotal and missing wallets remain separate when coverage is incomplete.
+
+The observer persists fixed boundaries, attempt identities, phase budgets and fenced leases. Defaults are three wallets per tick, three attempts per capture/proof/pin phase, 30-second retry, 120-second lease and 600-second discovery deadline. For real allocations it waits read-only for planning disposition and terminal execution jobs before pinning; polls do not consume RPC attempts. On settlement deadline it permits one final bounded capture attempt and marks unsettled coverage. Other exhausted work completes UNKNOWN. Initial PENDING and final COMPLETE revisions are immutable and atomically projected into the ledger; intermediate retries do not create revisions. DONE captures can be recovered after a crash, while partial attempts use new identities. Scheduler accounting runs in the background and is drained at stop.
+
+Missing adapters still produce durable UNKNOWN USD records. No automatic repair or post-completion deep-reorg watcher is provided. Completed UNKNOWN is a truthful accounting outcome, not execution acceptance. Registry/oracle/test-profile scope remains `REGISTERED_ASSETS_AND_NATIVE_EOA`, not all possible wallet wealth.

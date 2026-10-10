@@ -164,3 +164,26 @@ test("model context renders reference prices and basis points without scale ambi
     "role filtering must not mutate the signed context",
   );
 });
+
+test("raw cross-round delta disclaimer does not deny independent verified window accounting", () => {
+  const c = {
+    portfolio: portfolioSnapshot([], true),
+    markets: [],
+    chainId: 56,
+    universe: [],
+    portfolioIdentity: {
+      wallet: "0xabc",
+      scope: "CONFIGURED_ASSETS_AND_NATIVE",
+    },
+  };
+  const comparison = compareContext(c, c);
+  assert.equal(comparison.investmentReturnBps, null);
+  assert.doesNotMatch(
+    comparison.returnMissing,
+    /execution history unavailable/,
+  );
+  assert.match(
+    comparison.returnMissing,
+    /independent verified accounting windows/,
+  );
+});

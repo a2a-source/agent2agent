@@ -1,3 +1,7 @@
+import {
+  readObservationSnapshot,
+  validateRoundCashflowProof,
+} from "./round-observation-evidence.js";
 import { z } from "zod";
 import { getAddress } from "ethers";
 import { hash } from "./protocol.js";
@@ -273,6 +277,55 @@ export class PerformanceLedger {
   recordRound(raw: unknown): PerformanceRecord {
     const parsed = parse(raw),
       { supersedes, ...input } = parsed;
+    if (input.version === "performance-input/2") {
+      try {
+        for (const a of input.perAgent) {
+          const member = input.roster.find((r) => r.agentId === a.agentId)!;
+          for (const [id, nav, boundary] of [
+            [a.openingSnapshotId, a.openingNAV, input.openingBoundary],
+            [a.closingSnapshotId, a.closingNAV, input.closingBoundary],
+          ] as const) {
+            if (nav === null) continue;
+            if (!id || !boundary) invalid();
+            const snapshot = readObservationSnapshot(this.db, id!);
+            const capture = this.db.get<any>(
+              "portfolio-capture",
+              snapshot.requestId,
+            );
+            if (
+              snapshot.agent !== a.agentId ||
+              snapshot.wallet !== member.wallet ||
+              snapshot.chainId !== input.chainId ||
+              snapshot.navMicros !== nav ||
+              snapshot.blockNumber !== boundary!.blockNumber ||
+              snapshot.blockHash !== boundary!.blockHash ||
+              capture?.mode !== "round-observation" ||
+              hash(capture.boundary) !== hash(boundary) ||
+              snapshot.reservationSource !== "round-observation" ||
+              snapshot.holdings.some(
+                (h) => h.reserved !== "0" || h.gasExcluded !== "0",
+              )
+            )
+              invalid();
+          }
+          if (
+            a.cashflowComplete &&
+            !a.proofIds?.some(
+              (id) =>
+                validateRoundCashflowProof(
+                  this.db,
+                  id,
+                  a.openingSnapshotId ?? null,
+                  a.closingSnapshotId ?? null,
+                ) === "KNOWN",
+            )
+          )
+            invalid();
+        }
+      } catch {
+        invalid();
+      }
+    }
     const inputHash = hash(input);
     return this.db.transaction(() => {
       const previous = this.list(input.roundId).filter(

@@ -119,6 +119,7 @@ test("accounting persists before unhealthy provider gates and retries independen
       db.get<any>("service-error", "performance-accounting").reason,
       "ACCOUNTING_RETRY_PENDING",
     );
+    await new Promise<void>((r) => setImmediate(r));
     await s.tick();
     assert.equal(captures, 2);
     assert.equal(db.get("test", "accounted"), true);
@@ -286,5 +287,58 @@ test("background investment execution is independent of provider health, single-
   assert.equal(db.get("test", "execution-drained"), true);
   await scheduler.tick();
   assert.equal(calls, 1);
+  db.close();
+});
+
+test("slow accounting does not block scheduling and stop drains exactly one observer", async () => {
+  const db = new Store(":memory:");
+  let release!: () => void,
+    calls = 0,
+    probes = 0;
+  const gate = new Promise<void>((r) => (release = r));
+  const runner: any = {
+    agents: { db, list: () => [] },
+    cancel() {},
+    llm: {
+      refreshPrice: async () => {},
+      priceReady: () => true,
+      probeProvider: async () => {
+        probes++;
+        return false;
+      },
+    },
+  };
+  const penalties: any = {
+    observeResearch() {},
+    recoverOperational: async () => {},
+  };
+  const scheduler = new Scheduler(
+    runner,
+    penalties,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      tick: async () => {
+        calls++;
+        await gate;
+      },
+    },
+  );
+  const tick = scheduler.tick();
+  await new Promise<void>((r) => setImmediate(r));
+  assert.equal(probes, 1);
+  await tick;
+  await scheduler.tick();
+  assert.equal(calls, 1);
+  let stopped = false;
+  const stop = scheduler.stop().then(() => {
+    stopped = true;
+  });
+  await new Promise<void>((r) => setImmediate(r));
+  assert.equal(stopped, false);
+  release();
+  await stop;
   db.close();
 });

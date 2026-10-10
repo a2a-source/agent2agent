@@ -338,3 +338,41 @@ test("USD observation streams retain nullable boundaries without contaminating l
     db.close();
   }
 });
+
+test("USD known amounts require actual validated snapshot/proof provenance, not arbitrary claimed NAV", () => {
+  const db = new Store(":memory:");
+  try {
+    const x: any = {
+      ...fixture(),
+      version: "performance-input/2",
+      currency: "micro-USD",
+      observationId: "a".repeat(64),
+      terminalAt: 2,
+      sourceStatus: "PUBLISHED",
+      rosterComplete: true,
+      openingBoundary: {
+        blockNumber: 1,
+        blockHash: "0x" + "11".repeat(32),
+        blockTimeMs: 1,
+      },
+      closingBoundary: {
+        blockNumber: 2,
+        blockHash: "0x" + "22".repeat(32),
+        blockTimeMs: 2,
+      },
+      perAgent: fixture().perAgent.map((a) => ({
+        ...a,
+        investments: [],
+        openingSnapshotId: "1".repeat(64),
+        closingSnapshotId: "2".repeat(64),
+        proofIds: ["3".repeat(64)],
+      })),
+    };
+    assert.throws(
+      () => new PerformanceLedger(db).recordRound(x),
+      /PERFORMANCE_INVALID_INPUT/,
+    );
+  } finally {
+    db.close();
+  }
+});

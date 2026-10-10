@@ -223,6 +223,17 @@ function addLog(map: Map<string, ProofLog>, log: ProofLog) {
   map.set(logKey(log), log);
 }
 /** Conservative EOA/tracked-asset proof. Unknown external transfers are never priced as zero. */
+export interface ExecutionCashflowProofResult {
+  proofId: string;
+  status: "KNOWN" | "UNKNOWN";
+  reasons: string[];
+  cashflow?: {
+    complete: true;
+    netExternalFlowMicros: "0";
+    hasExternalFlows: false;
+    provenance: string[];
+  };
+}
 export async function proveExecutionNoExternalFlow(
   db: Store,
   provider: JsonRpcProvider,
@@ -230,15 +241,26 @@ export async function proveExecutionNoExternalFlow(
   closingSnapshotId: string,
   transactionIds: string[],
   confirmations: number,
-): Promise<
-  | {
-      complete: true;
-      netExternalFlowMicros: "0";
-      hasExternalFlows: false;
-      provenance: string[];
-    }
-  | undefined
-> {
+) {
+  return (
+    await proveExecutionNoExternalFlowResult(
+      db,
+      provider,
+      openingSnapshotId,
+      closingSnapshotId,
+      transactionIds,
+      confirmations,
+    )
+  ).cashflow;
+}
+export async function proveExecutionNoExternalFlowResult(
+  db: Store,
+  provider: JsonRpcProvider,
+  openingSnapshotId: string,
+  closingSnapshotId: string,
+  transactionIds: string[],
+  confirmations: number,
+): Promise<ExecutionCashflowProofResult> {
   const body: any = {
     version: "execution-cashflow-proof/1",
     openingSnapshotId,
@@ -651,13 +673,24 @@ export async function proveExecutionNoExternalFlow(
   }
   const id = hash(body);
   db.put("execution-cashflow-proof", id, { ...body, id });
-  if (transient) throw Error("cashflow proof RPC unavailable");
-  return body.status === "KNOWN"
-    ? {
-        complete: true,
-        netExternalFlowMicros: "0",
-        hasExternalFlows: false,
-        provenance: [id],
-      }
-    : undefined;
+  if (transient)
+    throw Object.assign(Error("cashflow proof RPC unavailable"), {
+      proofId: id,
+      reasons: body.reasons,
+    });
+  const cashflow: ExecutionCashflowProofResult["cashflow"] =
+    body.status === "KNOWN"
+      ? {
+          complete: true,
+          netExternalFlowMicros: "0",
+          hasExternalFlows: false,
+          provenance: [id],
+        }
+      : undefined;
+  return {
+    proofId: id,
+    status: body.status,
+    reasons: body.reasons,
+    ...(cashflow ? { cashflow } : {}),
+  };
 }

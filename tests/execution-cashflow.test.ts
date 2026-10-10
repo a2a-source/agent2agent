@@ -743,3 +743,207 @@ test("native deployment and fill validation failures remain permanent UNKNOWN ra
     }
   }
 });
+
+test("structured unsupported proof exposes the exact persisted reason and identity", async () => {
+  const { proveExecutionNoExternalFlowResult } =
+    await import("../src/execution-cashflow.js");
+  const db = new Store(":memory:");
+  try {
+    const result = await proveExecutionNoExternalFlowResult(
+      db,
+      {} as any,
+      "missing",
+      "missing2",
+      [],
+      2,
+    );
+    assert.equal(result.status, "UNKNOWN");
+    assert.deepEqual(result.reasons, ["SNAPSHOT_MISSING"]);
+    assert.equal(
+      db.get<any>("execution-cashflow-proof", result.proofId).status,
+      "UNKNOWN",
+    );
+  } finally {
+    db.close();
+  }
+});
+
+async function roundNativeFixture() {
+  const x = await nativeFixture();
+  for (const id of x.txIds) x.db.remove("transaction", id);
+  const clone = (source: any, block: number) => {
+    const { id, ...body } = source;
+    Object.assign(body, {
+      requestId: "outer" + block,
+      blockNumber: block,
+      blockHash: blockHash(block),
+      observedAt: block * 1000,
+      reservationSource: "round-observation",
+    });
+    const row = { ...body, id: hash(body) };
+    x.db.put("portfolio-snapshot", row.id, row);
+    x.db.put("portfolio-capture", row.requestId, {
+      ...x.db.get<any>("portfolio-capture", source.requestId),
+      snapshotId: row.id,
+    });
+    return row;
+  };
+  const a = clone(x.opening, 5),
+    b = clone(x.closing, 25);
+  x.provider.getBlockNumber = async () => 30;
+  x.provider.getTransactionCount = async (_w: string, block: number) =>
+    block <= 10 ? 5 : 6;
+  const getLogs = x.provider.getLogs;
+  x.provider.getLogs = async (filter: any) =>
+    (await getLogs(filter)).filter(
+      (l: any) =>
+        l.blockNumber >= filter.fromBlock && l.blockNumber <= filter.toBlock,
+    );
+  const job = {
+    ...x.db.get<any>("investment-execution-job", "job"),
+    chainId: 97,
+    wallet: x.owner,
+    agent: "agent",
+    status: "DONE",
+    closingSnapshotId: x.closing.id,
+  };
+  x.db.put("investment-execution-job", "job", job);
+  const { proveRoundNoExternalFlow } = await import("../src/round-cashflow.js");
+  return {
+    ...x,
+    a,
+    b,
+    job,
+    clone,
+    runRound: () => proveRoundNoExternalFlow(x.db, x.provider, a.id, b.id, 2),
+  };
+}
+test("native round cover preserves job snapshots and proves both empty gaps", async () => {
+  const x = await roundNativeFixture();
+  try {
+    const r = await x.runRound();
+    assert.equal(r.status, "KNOWN");
+    const proof = x.db.get<any>("round-cashflow-proof", r.proofId);
+    assert.equal(proof.segments.length, 3);
+    assert.equal(proof.segments[1].openingSnapshotId, x.opening.id);
+    assert.equal(proof.segments[1].closingSnapshotId, x.closing.id);
+    assert.deepEqual(proof.transactionIds, ["native"]);
+    assert.ok(proof.blockChecks.length >= 4);
+    const binding = x.db.get<any>("wallet-reservation-binding", "native");
+    x.db.put("wallet-reservation-binding", "native", {
+      ...binding,
+      nativeValueWei: "101",
+    });
+    assert.equal((await x.runRound()).status, "UNKNOWN");
+  } finally {
+    x.db.close();
+  }
+});
+test("native covers reject nonfinal, overlapping, straddling, duplicate, foreign gap and reorg evidence", async () => {
+  for (const kind of [
+    "nonfinal",
+    "overlap",
+    "straddle",
+    "duplicate",
+    "gap",
+    "reorg",
+    "limit",
+    "registry",
+  ]) {
+    const x = await roundNativeFixture();
+    try {
+      if (kind === "nonfinal")
+        x.db.put("investment-execution-job", "job", {
+          ...x.job,
+          status: "ACTIVE",
+        });
+      if (kind === "overlap" || kind === "duplicate")
+        x.db.put("investment-execution-job", "second", {
+          ...x.job,
+          id: "second",
+        });
+      if (kind === "straddle") {
+        const a = x.clone(x.opening, 1);
+        x.db.put("stable-wallet-plan", "plan", {
+          ...x.db.get<any>("stable-wallet-plan", "plan"),
+          snapshotId: a.id,
+        });
+      }
+      if (kind === "gap")
+        x.provider.getTransactionCount = async (_w: string, b: number) =>
+          b === 5 ? 4 : b <= 10 ? 5 : 6;
+      if (kind === "reorg") {
+        const original = x.provider.send;
+        let count = 0;
+        x.provider.send = async (m: string, args: any[]) => {
+          const b = await original(m, args);
+          return Number(BigInt(args[0])) === 10 && ++count > 2
+            ? { ...b, hash: blockHash(999) }
+            : b;
+        };
+      }
+      if (kind === "limit")
+        for (let i = 0; i < 17; i++)
+          x.db.put("investment-execution-job", "extra" + i, {
+            ...x.job,
+            id: "extra" + i,
+          });
+      if (kind === "registry") {
+        const a = x.clone(x.opening, 10);
+        const { id, ...body } = a;
+        body.registryHash = "1".repeat(64);
+        const r = { ...body, id: hash(body) };
+        x.db.put("portfolio-snapshot", r.id, r);
+        x.db.put("stable-wallet-plan", "plan", {
+          ...x.db.get<any>("stable-wallet-plan", "plan"),
+          snapshotId: r.id,
+        });
+      }
+      const r = await x.runRound();
+      assert.equal(r.status, "UNKNOWN", kind);
+      assert.ok(r.reasons.length, kind);
+    } finally {
+      x.db.close();
+    }
+  }
+});
+
+test("native cover permits equal same-block joins but rejects contradictory raw holdings", async () => {
+  for (const mismatch of [false, true]) {
+    const x = await roundNativeFixture();
+    try {
+      const a = x.clone(x.opening, 10),
+        b = x.clone(x.closing, 20);
+      Object.assign(x.a, a);
+      Object.assign(x.b, b);
+      if (mismatch) {
+        const { id, ...body } = a;
+        body.holdings = body.holdings.map((h: any) =>
+          h.asset === "native"
+            ? { ...h, balance: String(BigInt(h.balance) + 1n) }
+            : h,
+        );
+        const changed = { ...body, id: hash(body) };
+        x.db.put("portfolio-snapshot", changed.id, changed);
+        x.db.put("portfolio-capture", changed.requestId, {
+          ...x.db.get<any>("portfolio-capture", changed.requestId),
+          snapshotId: changed.id,
+        });
+        Object.assign(x.a, changed);
+      }
+      const result = await x.runRound();
+      assert.equal(result.status, mismatch ? "UNKNOWN" : "KNOWN");
+      if (mismatch)
+        assert.deepEqual(result.reasons, ["ZERO_LENGTH_JOIN_MISMATCH"]);
+      else
+        assert.equal(
+          x.db
+            .get<any>("round-cashflow-proof", result.proofId)
+            .segments.filter((s: any) => s.zeroLength).length,
+          2,
+        );
+    } finally {
+      x.db.close();
+    }
+  }
+});

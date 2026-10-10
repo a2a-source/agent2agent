@@ -163,7 +163,8 @@ export function createApi(s: Services) {
               .filter((r) => r.agents.some((x) => x.agentId === a.id))
               .sort(
                 (a, b) =>
-                  a.windowEndMs - b.windowEndMs ||
+                  (a.windowEndMs ?? a.observedAt) -
+                    (b.windowEndMs ?? b.observedAt) ||
                   a.revision - b.revision ||
                   a.roundId.localeCompare(b.roundId),
               )
@@ -172,6 +173,16 @@ export function createApi(s: Services) {
                 roundId: r.roundId,
                 chainId: r.chainId,
                 currency: r.currency,
+                ...(r.version === "performance-round/2"
+                  ? {
+                      observationId: r.observationId,
+                      sourceStatus: r.sourceStatus,
+                      terminalAt: r.terminalAt,
+                      rosterComplete: r.rosterComplete,
+                      openingBoundary: r.openingBoundary,
+                      closingBoundary: r.closingBoundary,
+                    }
+                  : {}),
                 windowStartMs: r.windowStartMs,
                 windowEndMs: r.windowEndMs,
                 revision: r.revision,
@@ -209,14 +220,17 @@ export function createApi(s: Services) {
           return;
         }
         const latest = new Map(
-          s.performance.list().map((r) => [`${r.chainId}:${r.roundId}`, r]),
+          s.performance
+            .list()
+            .map((r) => [`${r.chainId}:${r.roundId}:${r.currency}`, r]),
         );
         send(
           200,
           [...latest.values()]
             .sort(
               (a, b) =>
-                a.windowEndMs - b.windowEndMs ||
+                (a.windowEndMs ?? a.observedAt) -
+                  (b.windowEndMs ?? b.observedAt) ||
                 a.roundId.localeCompare(b.roundId),
             )
             .slice(-100)
@@ -224,6 +238,16 @@ export function createApi(s: Services) {
               roundId: r.roundId,
               chainId: r.chainId,
               currency: r.currency,
+              ...(r.version === "performance-round/2"
+                ? {
+                    observationId: r.observationId,
+                    sourceStatus: r.sourceStatus,
+                    terminalAt: r.terminalAt,
+                    rosterComplete: r.rosterComplete,
+                    openingBoundary: r.openingBoundary,
+                    closingBoundary: r.closingBoundary,
+                  }
+                : {}),
               windowStartMs: r.windowStartMs,
               windowEndMs: r.windowEndMs,
               revision: r.revision,

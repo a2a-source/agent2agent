@@ -42,6 +42,11 @@ for (const testnet of [false, true]) {
     }
     config.network.timeoutMs = 3600000;
     config.network.stateMaxAgeMs = 3600000;
+    const accountingPromptRoles = new Set<string>();
+    t.after(() => {
+      assert.ok(accountingPromptRoles.has("positions"));
+      assert.ok(accountingPromptRoles.has("master"));
+    });
     const runtimeRun = AgentRuntime.prototype.run;
     t.mock.method(
       AgentRuntime.prototype,
@@ -56,6 +61,20 @@ for (const testnet of [false, true]) {
         signal?: AbortSignal,
         outputSchema?: Record<string, unknown>,
       ) {
+        const supplied = JSON.parse(input);
+        if (supplied.context) {
+          assert.equal(
+            supplied.context.accountingBrief.lifetimeUSDT.status,
+            "UNKNOWN",
+          );
+          assert.match(
+            supplied.context.accountingBrief.guidance,
+            /Latest UNKNOWN does not erase an older KNOWN/,
+          );
+          if (supplied.identity?.role === "positions")
+            accountingPromptRoles.add("positions");
+          if (id.includes("synthesis")) accountingPromptRoles.add("master");
+        }
         return runtimeRun.call(
           this,
           agent,

@@ -1,3 +1,4 @@
+import { collectRoundObservationEvidence } from "./round-observation-context.js";
 import {
   Contract,
   JsonRpcProvider,
@@ -154,6 +155,7 @@ export class ResearchData {
       context: ResearchContext;
     } | null,
     signal?: AbortSignal,
+    currentRoundId?: string,
   ): Promise<ResearchContext> {
     assertResearchAssets(
       this.config.chainId,
@@ -462,7 +464,24 @@ export class ResearchData {
       }
     } catch {
       missing.push(
-        "Completed investment execution feedback unavailable or invalid; accounting performance unknown",
+        "Completed investment execution feedback unavailable or invalid; execution-window performance unknown",
+      );
+    }
+    let roundObservation: ResearchContext["roundObservation"];
+    try {
+      const result = collectRoundObservationEvidence(
+        this.db,
+        c.chainId,
+        at,
+        currentRoundId,
+      );
+      if (result) {
+        roundObservation = result.observation;
+        proofs.push(result.evidence);
+      }
+    } catch {
+      missing.push(
+        "Latest terminal round observation unavailable or invalid; observed accounting is UNKNOWN",
       );
     }
     const partial = {
@@ -479,6 +498,7 @@ export class ResearchData {
     return contextSchema.parse({
       version: "research-context/1",
       ...(executionFeedback ? { executionFeedback } : {}),
+      ...(roundObservation ? { roundObservation } : {}),
       at,
       chainId: c.chainId,
       ...(c.testnetProfile ? { testnetProfile: c.testnetProfile } : {}),
@@ -541,10 +561,13 @@ export function contextTools(
       schema: z.object({}),
       run: async () => ({
         data: Object.fromEntries(
-          ["facts", "executionFeedback", ...sections].map((s) => [
-            s,
-            (promptSnapshot(context) as any)[s],
-          ]),
+          [
+            "facts",
+            "executionFeedback",
+            "roundObservation",
+            "accountingBrief",
+            ...sections,
+          ].map((s) => [s, (promptSnapshot(context) as any)[s]]),
         ),
         evidence: context.evidence,
         missing: context.missing,
