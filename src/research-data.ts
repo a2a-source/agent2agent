@@ -566,6 +566,8 @@ export function contextTools(
             "executionFeedback",
             "roundObservation",
             "accountingBrief",
+            "allocationReferenceBrief",
+            "researchSemanticsBrief",
             ...sections,
           ].map((s) => [s, (promptSnapshot(context) as any)[s]]),
         ),

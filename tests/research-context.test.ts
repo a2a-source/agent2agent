@@ -142,6 +142,8 @@ test("model context renders reference prices and basis points without scale ambi
     previous: null,
   };
   const p: any = promptSnapshot(raw);
+  assert.equal(p.researchSemanticsBrief.gas.gasReserveBNB, null);
+  assert.equal(p.researchSemanticsBrief.gas.nativeBalanceBNB, null);
   assert.equal(p.markets[0].priceUSDT, "2565.08");
   assert.equal(p.markets[0].changePercent, "0.22");
   assert.equal(p.markets[0].smaUSDT, "2564.039");

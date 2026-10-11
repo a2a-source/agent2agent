@@ -1,3 +1,4 @@
+import { researchSemanticsBrief } from "./research-semantics.js";
 import { allocationReferenceBrief } from "./allocation-reference.js";
 import {
   roundObservationSummarySchema,
@@ -440,6 +441,7 @@ export function promptSnapshot(c: ResearchContext, role?: string) {
     ...(c.roundObservation ? { roundObservation: c.roundObservation } : {}),
     accountingBrief: buildAccountingBrief(c),
     allocationReferenceBrief: allocationReferenceBrief(c),
+    researchSemanticsBrief: researchSemanticsBrief(c),
     portfolio: {
       status: c.portfolio.status,
       quoteCurrency: c.portfolio.quoteCurrency,

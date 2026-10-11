@@ -44,11 +44,14 @@ for (const testnet of [false, true]) {
     config.network.stateMaxAgeMs = 3600000;
     const accountingPromptRoles = new Set<string>();
     const allocationPromptRoles = new Set<string>();
+    const semanticsPromptRoles = new Set<string>();
     t.after(() => {
       assert.ok(accountingPromptRoles.has("positions"));
       assert.ok(accountingPromptRoles.has("master"));
       for (const role of ["positions", "risk", "master"])
         assert.ok(allocationPromptRoles.has(role));
+      for (const role of [...config.roles.map((r) => r.id), "master"])
+        assert.ok(semanticsPromptRoles.has(role), role);
     });
     const runtimeRun = AgentRuntime.prototype.run;
     t.mock.method(
@@ -66,6 +69,25 @@ for (const testnet of [false, true]) {
       ) {
         const supplied = JSON.parse(input);
         if (supplied.context) {
+          assert.equal(
+            supplied.context.researchSemanticsBrief.version,
+            "research-semantics-brief/1",
+          );
+          assert.equal(
+            supplied.context.researchSemanticsBrief.execution.status,
+            "NOT_VERIFIED",
+          );
+          if (supplied.identity?.role) {
+            assert.match(
+              supplied.researchScope.semantics,
+              /researchSemanticsBrief/,
+            );
+            semanticsPromptRoles.add(supplied.identity.role);
+          }
+          if (id.includes("synthesis")) {
+            assert.match(supplied.semantics, /researchSemanticsBrief/);
+            semanticsPromptRoles.add("master");
+          }
           assert.equal(
             supplied.context.accountingBrief.lifetimeUSDT.status,
             "UNKNOWN",

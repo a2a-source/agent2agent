@@ -1,3 +1,4 @@
+import { roleSemanticsInstruction } from "./research-semantics.js";
 import { verifyPublishedEpoch } from "./confirmation.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { validateReportSections } from "./report-templates.js";
@@ -210,6 +211,7 @@ export async function buildResearchPackage(p: {
                 chainId: context.chainId,
                 asset: a.address,
               })),
+              semantics: roleSemanticsInstruction(role.id),
               objective:
                 "Provide role-specific facts and analysis for every configured asset. Use context.facts for funding and limits. Zero token holdings do not prevent BUY when native funding exists; SELL requires holdings. Leave other specialties to their roles. Clearly separate observed evidence, inference, missing data and conditional recommendations; do not invent metrics or sources.",
               ...(["positions", "risk"].includes(role.id)
@@ -316,6 +318,8 @@ export async function buildResearchPackage(p: {
         config.masterPrompt,
         JSON.stringify({
           task: 'Return JSON {sections:[{id,content,evidenceRefs:[]}],summary:string,decisions:[{role,decision:"ACCEPT"|"REJECT"|"QUALIFY",reason:string}],disagreements:string[],signals:[{chainId,asset,action:"BUY"|"SELL"|"HOLD",targetWeightBps,rationale,evidence:string[],conditions:string[],invalidation:string[],maxSlippageBps}],risks:string[]}. Fill sections in supplied reportTemplate order; evidenceRefs use frozen E refs or exact provided source URLs. Cover every role exactly once in decisions. Evidence references context.evidence IDs cited by reports. Include networkAllocation and stableNetworkAllocation as independent fields. For either common allocation, null means no supported common recommendation; insufficient evidence calls for null, never zero as a placeholder. A zero asset target explicitly requests zero desired exposure and can cause independent wallets to reduce that asset. An evidenced, defensible all-zero allocation is valid. signals=[] means no wallet-specific proposals; it does not imply no wallet action when a non-null common allocation exists. Explain wallet-specific proposals separately from common market targets, and keep the summary consistent with both. Missing historical cost basis or PnL does not itself invalidate known balances/current valuation or require a common target. Do not force nonzero targets or trades. Targets are desired portfolio weights, not order amounts. Unknown portfolio/valuation or absent market evidence prohibits signals. SELL requires actual holdings; HOLD preserves current weight; BUY increases target and requires observed liquidity. Respect context.policy. Explain decisions using context and reports, preserve material disagreement. Prior signals are unexecuted. Reconcile blanket claims of no accounting history against context.accountingBrief. Distinguish verified matched-wallet execution-window profit, latest inter-observation return, network totals and unknown lifetime USDT cost basis; cite each source window and evidence.',
+          semantics:
+            "Reconcile role claims with context.researchSemanticsBrief: natural quantities, full reserve holdings, explicit gas, canonical wrapper identity and quote limits. Corrections must preserve raw facts and independent targets.",
           context: promptContext,
           reportTemplate: config.reportTemplates.master,
           networkAllocationInstructions: {
