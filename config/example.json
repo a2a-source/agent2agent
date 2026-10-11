@@ -1,0 +1,35 @@
+{
+  "chain": {
+    "id": 56,
+    "rpcUrl": "https://YOUR_BSC_RPC_ENDPOINT.invalid",
+    "writesEnabled": false,
+    "confirmations": 12,
+    "fromBlock": 0,
+    "stakeAddress": "",
+    "factoryAddress": "",
+    "flapPortal": "",
+    "flapImplementation": ""
+  },
+  "llm": {
+    "endpoint": "https://openrouter.ai/api/v1",
+    "model": "openai/gpt-6.1-sol",
+    "apiKeyFile": "",
+    "priceFeed": "",
+    "priceMaxAgeSeconds": 3900
+  },
+  "agent": {
+    "maxToolRounds": 10,
+    "maxToolCalls": 20,
+    "toolsEnabled": true
+  },
+  "research": {
+    "enabled": true,
+    "chainId": 56,
+    "rpcUrl": "",
+    "portfolioWallet": "",
+    "maxAssetBps": 3000,
+    "maxTotalBps": 8000,
+    "maxAgeMs": 600000,
+    "validForMs": 300000
+  }
+}

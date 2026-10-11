@@ -1,0 +1,9 @@
+node_modules/
+dist/
+artifacts/
+var/
+.env
+config/local.json
+*.sqlite*
+*.pem
+coverage/

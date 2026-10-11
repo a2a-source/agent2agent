@@ -1,0 +1,35 @@
+# Agent 标准汇报模板
+
+六个研究角色与 Master 各有独立模板，配置于 [`config/report-templates.json`](../config/report-templates.json)；角色 Prompt 仍在 `config/default.json`。可通过配置覆盖 `reportTemplates`。模板进入周期配置哈希，同一周期中不能更改。
+
+| 角色           | 固定章节                                   |
+| -------------- | ------------------------------------------ |
+| 持仓 positions | 持仓与资金、成本收益、跨轮变化、持仓建议   |
+| 趋势 market    | 三币小时趋势、短周期对照、条件场景、局限   |
+| 新闻 news      | 逐币新闻、正文核验、潜在影响、局限         |
+| 宏观 macro     | 已核验政策事实、资产影响路径、场景、局限   |
+| 链上 onchain   | 逐币池子与流动性、资产风险、交易约束、局限 |
+| 风控 risk      | 确定性限额、资金与敞口、硬约束、风险缺口   |
+| Master         | 权威状态、角色证据审阅、提议策略、剩余局限 |
+
+各角色保留摘要、建议、不确定性、缺失项和证据引用，并新增 `sections`。每节包含固定 `id`、正文 `content`、证据 `evidenceRefs`；Master 同时保留各角色采纳意见、分歧、量化信号与风险。
+
+生成时可引用冻结上下文的 E1 等别名，或工具实际返回的来源 URL；发布前别名转为证据 ID。缺章、重排、重复、超长及虚构引用会被拒绝。缺数据必须明确描述，不能用占位内容冒充调研。章节格式正确不等于事实已核验。
+
+新 QSP v2 携带模板快照、各角色与 Master 章节，以及代码生成的 `researchChecks`（c4/1），统一纳入签名。旧包缺少这些扩展时仍可验证；使用旧严格 schema 的消费者需要升级后读取新包。
+
+资金、仓位与限额由代码计算，百分比直接提供给模型；精确阈值比较不依赖展示值的取整。USDT 是估值单位，原生 BNB 可作为潜在资金，但不是稳定币，也不是已经取得执行报价的可用余额。研究代币限额包含 WBNB、不包含原生 BNB；BNB 单列价格风险。空信号包仍可能存在超限，未知值保持 null。市场观点或文字失效条件不能取消硬性限额。带有 `policyTextVersion: "c4-hard-risk-conditions/1"` 的新 QSP 会根据冻结仓位和限额，确定性改写纠正超限风险的卖出条件与失效边界；只有新仓位快照显示重新合规后，才清除该要求。
+
+无效输出在已有尝试上限内获得安全反馈（默认初次加一次重试），重启保留反馈及故障类别。趋势须尝试全部目标币种 K 线；新闻批量检索每个目标币种，并为每币最多两条标题做精确标题原文定位。若发现发布方候选链接，新闻角色须逐币至少尝试一次抓取。原文不可用时可标为 `HEADLINE_ONLY`；只有该条新闻的同一发布方 URL 已抓取到非空正文，并在新闻章节 `evidenceRefs` 中引用时，才能标为 `FULL_TEXT`。Google News RSS 是索引，不是文章正文。宏观须尝试正文获取。工具失败可以记录缺失，不能伪称成功。这些检查不保证新闻相关性或事实真实性。
+
+K 线工具提供可复核的收益、均线及时间窗口；网页工具优先提取正文，避免导航占满截断预算。真实验收还需逐角色核对来源、日期、数字和结论，区分事实与推断，并检查 Master 是否忠实处理分歧。系统仍只生成未执行的研究提案。
+
+新闻角色可先用 `asset_news` 一次完成三币候选新闻检索，再定位和读取正文。原文检索失败会作为缺失来源记录；正文覆盖状态统一写在标准行的 `status` 字段，不根据自然语言否定句推断核实状态。资产机制指引区分[原生 BNB 包装合约 WBNB](https://www.bnbchain.org/en/blog/what-is-wbnb)与[Binance 锚定资产](https://www.bnbchain.org/en/blog/binance-presents-project-token-canal-2)；这些机制说明不代表已核实实时储备，也不能用无关金库事件证明包装合约或桥受攻击。
+
+模型输入中的初始新闻逐条标注 `HEADLINE_ONLY`。链上角色的初始上下文不注入这些未核验标题，优先分析池子、流动性与资产机制；仍可通过工具主动获取来源。新闻角色负责事件检索，Master 综合审阅。此输入裁剪不修改已冻结的原始上下文或证据。Master 同时收到通过决策 schema 验证的完整根对象示例，避免将交易字段误填进汇报章节。
+
+默认 `agent.finalOutputMode: "text"` 使用下述行为。显式 `"tool"` 模式改用 LangChain `toolStrategy`（`handleError: false`）承载传入的 schema，只读取框架 `structuredResponse`，不发送 provider `response_format`。无效或多个输出直接失败，不增加修复调用，不回退文本；本地报告校验仍然执行。详见 [Agent 输出模式](agents.zh-CN.md#prompt-与配置)。
+
+`llm.structuredOutputs` 在默认配置中启用：Master 无工具汇总，以及研究角色耗尽工具轮次后的无工具输出，会发送严格 JSON Schema。正常 ReAct 工具阶段不发送最终报告 Schema，避免部分供应商因此跳过工具。角色提前结束调研时仍由本地 schema、章节和证据校验把关。OpenRouter 请求要求路由支持所用参数；其他兼容接口不接收 OpenRouter 专属路由字段。不支持结构输出的 endpoint 可显式设为 `false`；系统不会在失败后悄悄降级。参见 [OpenRouter 结构输出文档](https://openrouter.ai/docs/guides/features/structured-outputs)。结构约束不能保证结论正确。
+
+新闻来源校验针对标准新闻行中明确的 `status=FULL_TEXT` 字段：必须保留发现时的原标题、匹配抓取页面的标题、取得非空且未识别为验证页的正文，并在 `publisherUrl` 和 `evidenceRefs` 中引用实际落地 URL。已发现的标题可通过精确标题 `web_search` 补查原文。`fetch_page` 返回 `requestedUrl`、`finalUrl` 和 `pageTitle`，记录重定向后的实际来源。标题匹配采用保守规则，可能拒绝真实文章；无法建立对应关系时使用 `HEADLINE_ONLY`。这些检查不验证任意自然语言陈述、所有访问拦截页面、文章完整性或发布方的事实真实性。

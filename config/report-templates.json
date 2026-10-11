@@ -1,0 +1,184 @@
+{
+  "positions": {
+    "version": "role-report/1",
+    "title": "Portfolio and funding",
+    "sections": [
+      {
+        "id": "holdings",
+        "title": "Holdings and funding",
+        "instruction": "For every asset, quantity, value, weightPercent; BNB potential funding separately. Cite frozen portfolio evidence."
+      },
+      {
+        "id": "performance",
+        "title": "Cost and performance",
+        "instruction": "Use context.accountingBrief: state observed holdings/current valuation, verified matched-wallet window PnL with source round and evidence, and network result separately. Preserve older KNOWN execution history alongside latest UNKNOWN terminal accounting. Unknown lifetime USDT cost basis/realized/unrealized figures do not erase verified window results. Never substitute network profit for wallet profit. Abstention and UNKNOWN are not zero returns; deposits are not gains."
+      },
+      {
+        "id": "changes",
+        "title": "Cross-round changes",
+        "instruction": "Quantity versus market-price changes; prior proposals are not fills. If no comparable previous snapshot exists, state NOT_COMPARABLE; never substitute the current market-window return."
+      },
+      {
+        "id": "recommendation",
+        "title": "Position recommendation",
+        "instruction": "Concentration issues from facts, hold/reduce/add eligibility; uncertainty and missing accounting."
+      }
+    ]
+  },
+  "market": {
+    "version": "role-report/1",
+    "title": "Multi-horizon trend",
+    "sections": [
+      {
+        "id": "hourly_trends",
+        "title": "Hourly trends",
+        "instruction": "For EACH BTCUSDT/ETHUSDT/BNBUSDT: tool source, first/last times, firstOpenToLastCloseBps and lastCloseVsSma from computed metrics."
+      },
+      {
+        "id": "short_term",
+        "title": "Short-term comparison",
+        "instruction": "Frozen one-minute metrics, their actual window and evidence. Explain differences with hourly observations without conflating windows."
+      },
+      {
+        "id": "scenarios",
+        "title": "Conditional scenarios",
+        "instruction": "Evidence-grounded entry/reduction scenarios and invalidation. No invented RSI or price thresholds."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Missing data, CEX versus DEX limitations, timestamp mismatch and uncertainty."
+      }
+    ]
+  },
+  "news": {
+    "version": "role-report/1",
+    "title": "Asset news",
+    "sections": [
+      {
+        "id": "asset_news",
+        "title": "Per-asset news",
+        "instruction": "For each relevant item from the configured assets actually observed in asset_news (including QBTC, QETH and QBNB on testnet), preserve the exact observed asset symbol without aliases and write one line with these fields in order: asset=...; status=...; headline=...; publishedAt=...; publisherUrl=...; relevance=.... In JSON, separate lines with the escaped newline sequence \\n, never a lone backslash before asset=. Status must be exactly HEADLINE_ONLY or FULL_TEXT. Or explicitly say no relevant item found for an asset. FULL_TEXT requires nonempty fetched publisher text, and that exact publisherUrl must appear in this section evidenceRefs. HEADLINE_ONLY states the retrieval limitation. Copy discovered headline exactly. FULL_TEXT requires fetched pageTitle matching the headline and a nonempty body; cite fetch_page finalUrl as publisherUrl and evidenceRefs. Title missing/mismatch (including different wording beyond punctuation or publisher suffix) or challenge pages remain HEADLINE_ONLY. Use only supplied frozen evidence IDs or observed source URLs as evidenceRefs; context.facts is content, never an evidence reference. Verification status belongs only in this section’s status field."
+      },
+      {
+        "id": "verification",
+        "title": "Verification",
+        "instruction": "Which important source bodies were actually fetched; what facts those bodies support. Failed retrievals and forecasts must be explicit."
+      },
+      {
+        "id": "impact",
+        "title": "Potential impact",
+        "instruction": "Separate observed event from inferred asset impact and horizon. Do not claim price impact is proven."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Unverified/old/irrelevant items, gaps and conflicting accounts."
+      }
+    ]
+  },
+  "macro": {
+    "version": "role-report/1",
+    "title": "Macro conditions",
+    "sections": [
+      {
+        "id": "policy_facts",
+        "title": "Verified macro facts",
+        "instruction": "Official source URL/publication date and actual policy facts visible in fetched text; unknown CPI/rates remain unknown. Distinguish historical pre-meeting expectations in minutes from the actual past decision and current future scenarios."
+      },
+      {
+        "id": "transmission",
+        "title": "Asset impact channels",
+        "instruction": "Explain potential BTC/ETH/BNB channels as interpretation, not direct proof."
+      },
+      {
+        "id": "scenarios",
+        "title": "Scenarios",
+        "instruction": "Conditional implications and horizon without inventing numeric releases."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Unobserved time series, old releases, unavailable documents and uncertainty."
+      }
+    ]
+  },
+  "onchain": {
+    "version": "role-report/1",
+    "title": "Chain and DEX observations",
+    "sections": [
+      {
+        "id": "liquidity",
+        "title": "Per-asset pool observations",
+        "instruction": "For every asset give pool identity, observed liquidity, DEX, timestamp and evidence; avoid overlapping sums."
+      },
+      {
+        "id": "asset_risks",
+        "title": "Asset and protocol risks",
+        "instruction": "Distinguish known issuer/bridge mechanisms from verified incidents; cite actual evidence for incident claims."
+      },
+      {
+        "id": "constraints",
+        "title": "Trading constraints",
+        "instruction": "Observed liquidity threshold versus executable quote limitations; zero holdings do not prohibit BUY with BNB funding."
+      },
+      {
+        "id": "limitations",
+        "title": "Limitations",
+        "instruction": "Missing flows, holders, depth, bridge reserves or source checks. No invented whale activity."
+      }
+    ]
+  },
+  "risk": {
+    "version": "role-report/1",
+    "title": "Independent risk assessment",
+    "sections": [
+      {
+        "id": "limits",
+        "title": "Deterministic limits",
+        "instruction": "Copy per-asset weightPercent/limitPercent/overLimit and totalTokens equivalents from facts. State exactly which limits are breached."
+      },
+      {
+        "id": "funding",
+        "title": "Funding and exposure",
+        "instruction": "BNB potential funding and price risk separately; known/unknown capital, Gas and executable quote limits."
+      },
+      {
+        "id": "constraints",
+        "title": "Hard constraints",
+        "instruction": "Permissible target bounds and unresolved violations; hard rules cannot be cancelled by market conditions."
+      },
+      {
+        "id": "limitations",
+        "title": "Risk gaps",
+        "instruction": "Evidence freshness, liquidity limitations, missing data and residual risk."
+      }
+    ]
+  },
+  "master": {
+    "version": "role-report/1",
+    "title": "Master synthesis",
+    "sections": [
+      {
+        "id": "facts",
+        "title": "Authoritative state",
+        "instruction": "Portfolio/funding and actual breached limits from facts; do not repeat role arithmetic errors."
+      },
+      {
+        "id": "evidence_review",
+        "title": "Role evidence review",
+        "instruction": "Describe accepted/rejected/qualified conclusions, principal evidence and retained disagreements."
+      },
+      {
+        "id": "strategy",
+        "title": "Proposed strategy",
+        "instruction": "Explain wallet-specific signals or their absence separately from common market targets and their evidence. Distinguish null (no supported common recommendation) from zero exposure targets, which can cause independent-wallet reductions even with empty signals. Keep the summary consistent with the targets; explain an evidenced all-zero allocation explicitly. Preserve hard-rule priority. Proposals are unexecuted."
+      },
+      {
+        "id": "limitations",
+        "title": "Residual limitations",
+        "instruction": "Missing/weak/contradictory evidence, unresolved current violations and non-execution boundary."
+      }
+    ]
+  }
+}

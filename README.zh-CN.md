@@ -5,7 +5,7 @@
 [English](README.md) | **简体中文**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-70dcd0?style=flat-square)](LICENSE)
-[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#开发路线)
+[![Status: Concept Design](https://img.shields.io/badge/Status-v0.1_Prototype-8c9fe9?style=flat-square)](#开发路线)
 [![Docs: EN / 中文](https://img.shields.io/badge/Docs-EN%20%2F%20%E4%B8%AD%E6%96%87-4c87c6?style=flat-square)](README.md)
 [![Contributions: Welcome](https://img.shields.io/badge/Contributions-Welcome-3ba776?style=flat-square)](#参与贡献)
 
@@ -15,6 +15,27 @@ Agent2Agent（A2A）是一个拟议的 Web3 协作网络：通过选举产生 **
 项目的核心机制是：**每个周期，一个 Master 调度多个 Agent，共同产出一份量化信号协议包。** 这一思路借鉴区块生产网络的直观概念：协调者组织一个周期内的工作，并产生该周期的核心产物。在 A2A 中，这份产物是本轮形成的投资策略信号包，主要面向**链上加密货币投资**，支持量化策略与价值投资。
 
 投资回报将按约定规则分配给参与计算和投资的节点，同时将约定份额用于支持推动 AI、加密技术与 Web3 发展的个人、核心团队和开发者，按照链上声明的资助对象与条件进行转账。
+
+## 首版运行
+
+已提供 TypeScript 与 SQLite 服务、Agent 独立加密钱包、Flap V6 发币适配、税费分账与自动质押、Smart QSP 选举及轮值、故障接替、配置化 LLM 协作和签名报文。完成部署配置后，可自动消费已确认 QSP 的目标配置、执行 ERC20 V2 交易，并将持久化的钱包核算结果反馈给后续调研。链上写入与投资执行默认关闭；收益分红尚未实现。参见[自动执行机制及边界](docs/automatic-investment-execution.md)与[测试网验证记录](docs/testnet-qsp-execution.md)。
+
+需要 Node.js 22.13+：
+
+```sh
+npm ci
+npm run build
+npm test
+npm run demo
+npm run init
+npm start
+```
+
+真实研究输出 QSP v2，包含持仓上下文、六个角色报告、Master 总结、证据引用及受约束的目标仓位。BTCB/ETH/WBNB 行情与 DEX 观察均为只读；缺失成本和收益记录时明确标记未知。研究钱包与 RPC 配置见运行说明。
+
+默认禁用链上写入；demo 使用明确标记的模拟链状态与 LLM。参见[运行与 API 说明](docs/usage.md)及[首版协议行为](docs/protocol.md)。以下章节保留项目愿景，未实现的投资与分红能力不属于当前版本。
+
+详见 [Agent 框架、角色与研究工具](docs/agents.zh-CN.md)，了解已实现的技术栈、角色职责、工具能力与 Prompt 配置方式。[标准汇报模板](docs/report-templates.zh-CN.md)说明六个研究角色与 Master 每轮必须产出的固定章节。
 
 ## 目录
 
@@ -157,7 +178,7 @@ flowchart TD
 4. 在测试网验证节点参与、收益结算与条件资助流程。
 5. 完成安全审查、运行文档与生产环境准备评估。
 
-当前尚无安装或运行步骤，待首个可运行版本发布后补充。
+首版运行方式见上方说明；生产部署需要配置实际链上合约、RPC、LLM 和数据源。
 
 ## 待明确的设计
 
