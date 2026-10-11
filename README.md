@@ -5,7 +5,7 @@
 **English** | [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-70dcd0?style=flat-square)](LICENSE)
-[![Status: Concept Design](https://img.shields.io/badge/Status-Concept_Design-8c9fe9?style=flat-square)](#roadmap)
+[![Status: Concept Design](https://img.shields.io/badge/Status-v0.1_Prototype-8c9fe9?style=flat-square)](#roadmap)
 [![Docs: EN / 中文](https://img.shields.io/badge/Docs-EN%20%2F%20%E4%B8%AD%E6%96%87-4c87c6?style=flat-square)](README.zh-CN.md)
 [![Contributions: Welcome](https://img.shields.io/badge/Contributions-Welcome-3ba776?style=flat-square)](#contributing)
 
@@ -15,6 +15,27 @@ Agent2Agent (A2A) is a proposed Web3 network where an elected **Master Agent** c
 The central idea is simple: **each epoch, one Master orchestrates many agents to produce one shared signal protocol package**. This draws on the intuition of a block-producing network: a coordinator organizes work for a cycle and produces its defining artifact. In A2A, that artifact is an investment-strategy signal package, primarily focused on **on-chain cryptocurrency investment** through quantitative strategies and value investing.
 
 Investment returns would be shared with participating computing nodes and investors. An agreed portion would also fund individuals, core teams and developers advancing AI, crypto and Web3, through conditions and recipients declared on-chain.
+
+## Run v0.1
+
+The repository now includes a TypeScript/SQLite service, encrypted Agent wallets, a Flap V6 launch adapter, revenue splitting and staking contracts, Smart QSP elections and failover, LangChain/LangGraph ReAct research with configurable OpenRouter models and bounded web tools, and signed outputs. Configured deployments can automatically consume confirmed QSP allocations, execute ERC20 V2 trades and return persisted wallet accounting to subsequent research. Chain writes and investment execution are disabled by default; profit distribution is not implemented. See [execution behavior and limitations](docs/automatic-investment-execution.md) and [testnet evidence](docs/testnet-qsp-execution.md).
+
+Requires Node.js 22.13+:
+
+```sh
+npm ci
+npm run build
+npm test
+npm run demo
+npm run init
+npm start
+```
+
+Live research emits QSP v2 with portfolio context, six specialist reports, Master decisions, evidence references and bounded target weights. BTCB/ETH/WBNB reference data and DEX observations are read-only; unknown costs and returns remain explicit. Configure the research wallet and RPC as described in the usage guide.
+
+Chain writes are disabled by default. The demo explicitly simulates chain state and LLM responses. See [operations and API usage](docs/usage.md) and [implemented protocol behavior](docs/protocol.md). The sections below retain the broader project vision, including capabilities outside this release.
+
+See [Agent framework, roles and research tools](docs/agents.md) for the implemented technology stack, specialist responsibilities, tool capabilities and prompt configuration. [Standard report templates](docs/report-templates.md) define the required output sections for all six research roles and Master.
 
 ## Contents
 
@@ -155,7 +176,7 @@ The proposed sequence, without committed release dates:
 4. Validate participation, settlement and conditional funding on a testnet.
 5. Complete security review, operational documentation and production-readiness evaluation.
 
-There are no installation or runtime instructions yet. These will be added with the first runnable release.
+Runtime instructions are provided above. Network deployment requires configured contracts, RPC, LLM and data sources.
 
 ## Open design questions
 
@@ -180,3 +201,5 @@ Contributions to protocol design, multi-agent collaboration, quantitative resear
 This project is licensed under the [MIT License](LICENSE).
 
 Copyright © 2026 a2a-source and Agent2Agent contributors.
+
+Implementation reference: [automatic QSP wallet execution](docs/automatic-investment-execution.md), [execution accounting and research feedback](docs/execution-feedback.md), and [explicit testnet asset profiles](docs/research-testnet-profile.md). These documents distinguish implemented behavior from the conceptual roadmap above.
