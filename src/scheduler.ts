@@ -314,8 +314,8 @@ export class Scheduler {
       if (e.status !== "RUNNING") e = undefined;
     }
     if (!e) {
-      // A stalled readiness operation cannot extend the slot. Leave an eligible
-      // slot open while its first probe is pending, then record its expiry.
+      // Keep an eligible slot open while prior work drains or readiness is
+      // pending. Neither condition can extend the original admission window.
       const schedule = db.get<{ anchorAt: number }>(
         "schedule",
         "fixed-start/1",
@@ -325,7 +325,8 @@ export class Scheduler {
         Math.floor((now - schedule.anchorAt) / timing.intervalMs) *
           timing.intervalMs;
       if (
-        (!this.readiness ||
+        (this.runTask ||
+          !this.readiness ||
           now - this.readiness.at > this.runner.config.network.stateMaxAgeMs) &&
         now < scheduledAt + timing.maxDurationMs - timing.confirmationReserveMs
       )

@@ -543,8 +543,95 @@ test("deadline callback terminalizes a still-draining round without admitting an
     assert.equal(epochs.get("0").finishedAt, 301000);
     assert.equal(runs, 1);
     assert.equal(db.all("epoch").length, 1);
+    assert.equal(db.get<any>("schedule", "fixed-start/1").skippedSlots, 0);
+    t.mock.timers.tick(285000);
+    await s.tick();
+    assert.equal(db.get<any>("schedule", "fixed-start/1").skippedSlots, 1);
+    t.mock.timers.setTime(1486000);
+    await s.tick();
+    assert.equal(db.get<any>("schedule", "fixed-start/1").skippedSlots, 4);
+    assert.equal(runs, 1);
+    let stopped = false;
+    const stop = s.stop().then(() => {
+      stopped = true;
+    });
+    await flush();
+    assert.equal(stopped, false);
+    release();
+    await stop;
+    t.mock.timers.tick(300000);
+    await s.tick();
+    assert.equal(runs, 1);
+    assert.equal(db.all("epoch").length, 1);
   } finally {
     release();
+    await s.stop();
+    db.close();
+  }
+});
+
+test("cooperative boundary drain preserves the eligible next slot and its original hard deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const db = new Store(":memory:"),
+    epochs = new Epochs(db);
+  let release!: () => void,
+    runs = 0;
+  const gate = new Promise<void>((r) => (release = r));
+  let releaseNext!: () => void;
+  const nextGate = new Promise<void>((r) => (releaseNext = r));
+  const runner: any = {
+    agents: { db, list: () => [] },
+    config: {
+      roundTiming: timing,
+      network: { ...config, stateMaxAgeMs: 600000 },
+    },
+    epochs,
+    cancel() {
+      release();
+    },
+    candidates: () => candidates,
+    llm: {
+      refreshPrice: async () => {},
+      priceReady: () => true,
+      probeProvider: async () => true,
+    },
+    run: async (e: any) => {
+      db.put("epoch", e.id, {
+        ...e,
+        deadline: e.roundDeadline,
+        confirmationDeadline: e.roundDeadline,
+      });
+      db.put("confirmation-proposal", e.id, { fixture: true });
+      runs++;
+      await (runs === 1 ? gate : nextGate);
+    },
+  };
+  const s = new Scheduler(runner, {
+    observeResearch() {},
+    recoverOperational: async () => {},
+  } as any);
+  try {
+    await s.tick();
+    await flush();
+    assert.equal(runs, 1);
+    t.mock.timers.tick(300000);
+    assert.equal(epochs.get("0").status, "FAILED");
+    assert.equal(epochs.get("0").finishedAt, 301000);
+    assert.equal(runs, 1);
+    assert.equal(db.all("epoch").length, 1);
+    await flush();
+    t.mock.timers.tick(1);
+    await s.tick();
+    await flush();
+
+    assert.equal(runs, 2);
+    assert.equal(epochs.get("1").scheduledAt, 301000);
+    assert.equal(epochs.get("1").startedAt, 301001);
+    assert.equal(epochs.get("1").roundDeadline, 601000);
+    assert.equal(db.get<any>("schedule", "fixed-start/1").skippedSlots, 0);
+  } finally {
+    release();
+    releaseNext();
     await s.stop();
     db.close();
   }
