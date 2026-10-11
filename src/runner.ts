@@ -1,3 +1,4 @@
+import { freezeTerminalObservationRoster } from "./round-observation.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { Confirmations, ConfirmationPending } from "./confirmation.js";
 import { terminalTiming } from "./cadence.js";
@@ -483,12 +484,15 @@ export class Runner {
         // Neither a different Master nor another attempt can repair a frozen
         // configuration/context. Preserve the evidence and start a new round
         // through the normal end-relative cadence instead of burning views.
-        if (terminal)
-          this.agents.db.put("epoch", epoch.id, {
+        if (terminal) {
+          const failed: Epoch = {
             ...live,
             status: "FAILED",
             ...terminalTiming(live, at),
-          });
+          };
+          this.agents.db.put("epoch", epoch.id, failed);
+          freezeTerminalObservationRoster(this.agents.db, failed);
+        }
       });
       throw e;
     } finally {

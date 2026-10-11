@@ -7,6 +7,11 @@ import { Budget } from "../src/budget.js";
 import { Epochs } from "../src/epochs.js";
 import { Llm } from "../src/llm.js";
 import { Runner } from "../src/runner.js";
+import {
+  RoundObservationService,
+  type RoundObservation,
+  type TerminalObservationRoster,
+} from "../src/round-observation.js";
 import { Scheduler } from "../src/scheduler.js";
 import { ResearchData } from "../src/research-data.js";
 import {
@@ -117,6 +122,29 @@ for (const failure of ["configuration", "context"] as const) {
     assert.equal(terminal.status, "FAILED");
     assert.equal(terminal.finishedAt, now);
     assert.equal(terminal.nextEligibleAt, now + 15000);
+    const roster = db.get<TerminalObservationRoster>(
+      "round-observation-terminal",
+      epoch.id,
+    );
+    assert.equal(roster?.rosterComplete, true);
+    assert.equal(roster.roster.length, 3);
+    assert.equal(roster.terminalAt, now);
+    assert.equal(roster.sourceStatus, "FAILED");
+    await new RoundObservationService(
+      db,
+      config.chain.id,
+      undefined,
+      {},
+      () => now,
+    ).tick();
+    const observation = db.all<RoundObservation>("round-observation").at(-1)!;
+    assert.equal(observation.rosterComplete, true);
+    assert.deepEqual(observation.roster, roster.roster);
+    assert(!JSON.stringify(observation).includes("ROSTER_HISTORY_INCOMPLETE"));
+    assert(
+      observation.missingReasons.includes("OBSERVATION_ADAPTER_UNAVAILABLE"),
+    );
+
     assert.equal(
       db.get<any>("research-failure", `${epoch.id}:0`).code,
       failure === "configuration"
