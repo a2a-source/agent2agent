@@ -15,7 +15,7 @@ import {
   verifyConfirmation,
 } from "../src/confirmation.js";
 
-async function fixture(n = 3, path = ":memory:") {
+async function fixture(n = 3, path = ":memory:", timeoutMs = 30000) {
   const db = new Store(path),
     epochs = new Epochs(db),
     wallets = Array.from({ length: n }, () => Wallet.createRandom());
@@ -59,7 +59,7 @@ async function fixture(n = 3, path = ":memory:") {
   );
   const options = {
     chainId: 97,
-    timeoutMs: 30000,
+    timeoutMs,
     roles: ["risk"],
     expectedConfigHash: output.configHash,
     toolsEnabled: false,
@@ -644,3 +644,149 @@ for (const interruptedBy of ["deadline", "stop"] as const)
     assert.equal(f.epochs.get(e.id).output, undefined);
     f.db.close();
   });
+
+for (const mode of ["settled", "restart", "views"] as const)
+  test(`scheduler retains epoch expiry after settled confirmation rejection (${mode})`, async (t) => {
+    const { Runner } = await import("../src/runner.js"),
+      { Scheduler } = await import("../src/scheduler.js"),
+      { loadConfig } = await import("./test-config.js");
+    t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+    const f = await fixture(3, ":memory:", 300000);
+    const timed = {
+      ...f.epochs.get(f.epoch.id),
+      timingVersion: "fixed-start/1" as const,
+      roundTiming: {
+        version: "fixed-start/1" as const,
+        intervalMs: 300000,
+        maxDurationMs: 300000,
+        viewTimeoutMs: 240000,
+        confirmationReserveMs: 15000,
+      },
+      scheduledAt: 1000,
+      startedAt: 1000,
+      roundDeadline: 301000,
+      researchDeadline: 286000,
+      roundIntervalMs: 300000,
+    };
+    f.db.put("epoch", timed.id, timed);
+    if (mode !== "views") {
+      f.epochs.takeover(timed.id, 0, 101000);
+      f.epochs.takeover(timed.id, 1, 201000);
+    }
+    t.mock.timers.setTime(mode === "views" ? 99000 : 299000);
+    const config = loadConfig();
+    config.roundTiming = timed.roundTiming;
+    const make = () =>
+      new Scheduler(
+        new Runner(
+          {
+            db: f.db,
+            list: () => [],
+            get: (id: string) => ({ id, launch: "CONFIRMED", jailed: false }),
+          } as any,
+          {} as any,
+          f.epochs,
+          {
+            refreshPrice: async () => {},
+            priceReady: () => false,
+            probeProvider: async () => false,
+          } as any,
+          config,
+        ),
+        { observeResearch() {}, recoverOperational: async () => {} } as any,
+      );
+    let s = make();
+    try {
+      await s.tick();
+      await new Promise<void>((r) => setImmediate(r));
+      assert.equal(f.db.all("confirmation-retry").length, 3);
+      assert.equal(f.epochs.get(timed.id).status, "RUNNING");
+      if (mode === "restart") {
+        await s.stop();
+        s = make();
+        await s.tick();
+        await new Promise<void>((r) => setImmediate(r));
+      }
+      t.mock.timers.tick(2000);
+      if (mode === "views") {
+        assert.equal(f.epochs.get(timed.id).view, 1);
+        await new Promise<void>((r) => setImmediate(r));
+        t.mock.timers.tick(100000);
+        assert.equal(f.epochs.get(timed.id).view, 2);
+        await new Promise<void>((r) => setImmediate(r));
+        t.mock.timers.tick(100000);
+      }
+      const closed = f.epochs.get(timed.id);
+      assert.equal(closed.status, "FAILED");
+      assert.equal(closed.finishedAt, 301000);
+      assert.equal(
+        f.db.get<any>("incident", `timeout:${timed.id}:2`)?.reason,
+        "CONFIRMATION_TIMEOUT",
+      );
+      assert.equal(f.db.all("confirmation-vote").length, 0);
+      assert.deepEqual(f.book.proposal(timed.id), f.proposal);
+      assert.ok(
+        f.db.all<any>("incident").every((i) => i.financialPenalty === "0"),
+      );
+    } finally {
+      await s.stop();
+      f.db.close();
+    }
+  });
+
+test("stopped scheduler releases its confirmation deadline timer without late store writes", async (t) => {
+  const { Runner } = await import("../src/runner.js"),
+    { Scheduler } = await import("../src/scheduler.js"),
+    { loadConfig } = await import("./test-config.js");
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const f = await fixture(3, ":memory:", 300000);
+  const roundTiming = {
+    version: "fixed-start/1" as const,
+    intervalMs: 300000,
+    maxDurationMs: 300000,
+    viewTimeoutMs: 240000,
+    confirmationReserveMs: 15000,
+  };
+  f.db.put("epoch", f.epoch.id, {
+    ...f.epochs.get(f.epoch.id),
+    timingVersion: roundTiming.version,
+    roundTiming,
+    scheduledAt: 1000,
+    startedAt: 1000,
+    roundDeadline: 301000,
+    researchDeadline: 286000,
+    roundIntervalMs: 300000,
+  });
+  const config = loadConfig();
+  config.roundTiming = roundTiming;
+  const runner = new Runner(
+    {
+      db: f.db,
+      list: () => [],
+      get: (id: string) => ({ id, launch: "CONFIRMED", jailed: false }),
+    } as any,
+    {} as any,
+    f.epochs,
+    {
+      refreshPrice: async () => {},
+      priceReady: () => false,
+      probeProvider: async () => false,
+    } as any,
+    config,
+  );
+  const s = new Scheduler(runner, {
+    observeResearch() {},
+    recoverOperational: async () => {},
+  } as any);
+  await s.tick();
+  await new Promise<void>((r) => setImmediate(r));
+  await s.stop();
+  const epoch = f.epochs.get(f.epoch.id),
+    incidents = f.db.all("incident");
+  t.mock.timers.tick(300000);
+  await s.tick();
+  assert.deepEqual(f.epochs.get(f.epoch.id), epoch);
+  assert.deepEqual(f.db.all("incident"), incidents);
+  f.db.close();
+  t.mock.timers.tick(300000);
+});

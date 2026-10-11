@@ -11,6 +11,8 @@ import type { ChainState } from "./watcher.js";
 import type { EncryptedWallet } from "./wallet.js";
 import { MIN_STAKE } from "./money.js";
 export class Scheduler {
+  private deadlineTimer?: ReturnType<typeof setTimeout>;
+  private deadlineKey?: string;
   private housekeepingTask?: Promise<void>;
   private readinessTask?: Promise<void>;
   private readiness?: { at: number; ready: boolean };
@@ -24,6 +26,7 @@ export class Scheduler {
   private accountingTask?: Promise<void>;
   async stop() {
     this.stopped = true;
+    this.clearDeadline();
     this.runner.cancel();
     await this.idle;
     await this.housekeepingTask;
@@ -220,7 +223,61 @@ export class Scheduler {
       }
     }
   }
+  private clearDeadline() {
+    clearTimeout(this.deadlineTimer);
+    this.deadlineTimer = undefined;
+    this.deadlineKey = undefined;
+  }
+  /** Epoch lifetime outlives each settled research/confirmation attempt. */
+  private armDeadline() {
+    if (this.stopped || !this.runner.config?.roundTiming) {
+      this.clearDeadline();
+      return;
+    }
+    const row = this.runner.agents.db
+      .all<Epoch>("epoch")
+      .find((e) => e.status === "RUNNING");
+    if (!row) {
+      this.clearDeadline();
+      return;
+    }
+    const epoch = this.runner.epochs.get(row.id);
+    const deadline = Math.min(
+      epoch.deadline,
+      epoch.roundDeadline ?? Infinity,
+      epoch.confirmationDeadline ?? Infinity,
+    );
+    const key = `${epoch.id}:${epoch.view}:${deadline}`;
+    if (key === this.deadlineKey) return;
+    this.clearDeadline();
+    this.deadlineKey = key;
+    this.deadlineTimer = setTimeout(
+      () => {
+        if (this.stopped || this.deadlineKey !== key) return;
+        this.deadlineTimer = undefined;
+        this.deadlineKey = undefined;
+        try {
+          this.controlRound();
+        } catch {
+          this.runner.agents.db.put("service-error", "round-control", {
+            at: Date.now(),
+            reason: "ROUND_CONTROL_FAILED",
+          });
+        }
+      },
+      Math.max(0, deadline - Date.now()),
+    );
+    this.deadlineTimer.unref();
+  }
   private controlRound() {
+    if (this.stopped) return;
+    try {
+      this.advanceRound();
+    } finally {
+      this.armDeadline();
+    }
+  }
+  private advanceRound() {
     if (this.stopped) return;
     const db = this.runner.agents.db,
       now = Date.now(),
@@ -309,6 +366,7 @@ export class Scheduler {
       .finally(() => {
         this.runTask = undefined;
         this.startAccounting();
+        this.armDeadline();
       });
   }
   private async legacyTick() {

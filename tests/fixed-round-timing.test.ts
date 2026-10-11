@@ -503,3 +503,49 @@ test("legacy SQLite migration ignores the old terminal wait, preserves term evid
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("deadline callback terminalizes a still-draining round without admitting an overlapping epoch", async (t) => {
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const db = new Store(":memory:"),
+    epochs = new Epochs(db);
+  let release!: () => void,
+    runs = 0;
+  const gate = new Promise<void>((r) => (release = r));
+  const runner: any = {
+    agents: { db, list: () => [] },
+    config: {
+      roundTiming: timing,
+      network: { ...config, stateMaxAgeMs: 600000 },
+    },
+    epochs,
+    cancel() {},
+    candidates: () => candidates,
+    llm: {
+      refreshPrice: async () => {},
+      priceReady: () => true,
+      probeProvider: async () => true,
+    },
+    run: async () => {
+      runs++;
+      await gate;
+    },
+  };
+  const s = new Scheduler(runner, {
+    observeResearch() {},
+    recoverOperational: async () => {},
+  } as any);
+  try {
+    await s.tick();
+    await flush();
+    assert.equal(runs, 1);
+    t.mock.timers.tick(300000);
+    assert.equal(epochs.get("0").status, "FAILED");
+    assert.equal(epochs.get("0").finishedAt, 301000);
+    assert.equal(runs, 1);
+    assert.equal(db.all("epoch").length, 1);
+  } finally {
+    release();
+    await s.stop();
+    db.close();
+  }
+});
