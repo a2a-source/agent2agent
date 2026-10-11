@@ -7,6 +7,7 @@ import {
   modelCallLimitMiddleware,
   tool,
   toolStrategy,
+  toolCallLimitMiddleware,
 } from "langchain";
 import { ChatOpenAI } from "@langchain/openai";
 import type { z } from "zod";
@@ -232,6 +233,7 @@ export class AgentRuntime {
         { name: t.name, description: t.description, schema: t.schema },
       ),
     );
+    const snapshotEnabled = tools.some((t) => t.name === "research_snapshot");
     const graph = createAgent({
       model,
       tools: wrapped,
@@ -258,13 +260,31 @@ export class AgentRuntime {
           name: "BoundedResearch",
           wrapModelCall: async (request, handler) => {
             const round = modelRounds++;
-            return handler(
-              round >= this.config.maxToolRounds
-                ? { ...request, tools: [] }
-                : request,
+            const snapshotObserved = observations.some(
+              (o) => o.tool === "research_snapshot",
             );
+            return handler({
+              ...request,
+              tools:
+                round >= this.config.maxToolRounds
+                  ? []
+                  : snapshotObserved
+                    ? request.tools.filter(
+                        (t) => t.name !== "research_snapshot",
+                      )
+                    : request.tools,
+            });
           },
         }),
+        ...(snapshotEnabled
+          ? [
+              toolCallLimitMiddleware({
+                toolName: "research_snapshot",
+                runLimit: 1,
+                exitBehavior: "continue",
+              }),
+            ]
+          : []),
         modelCallLimitMiddleware({
           runLimit: this.config.maxToolRounds + 1,
           exitBehavior: "error",
@@ -275,7 +295,13 @@ export class AgentRuntime {
     try {
       state = await graph.invoke(
         { messages: [{ role: "user", content: input }] },
-        { signal, recursionLimit: this.config.maxToolRounds * 4 + 10 },
+        {
+          signal,
+          // The snapshot limiter adds an afterModel graph step per round.
+          // Model dispatch and research execution budgets remain unchanged.
+          recursionLimit:
+            this.config.maxToolRounds * (snapshotEnabled ? 5 : 4) + 10,
+        },
       );
     } catch (e) {
       if (toolError) throw toolError;

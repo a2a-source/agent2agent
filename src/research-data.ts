@@ -557,7 +557,7 @@ export function contextTools(
     {
       name: "research_snapshot",
       description:
-        "Inspect immutable verified research snapshot and deterministic metrics for your role. It cannot execute orders.",
+        "Inspect the verified research snapshot and deterministic metrics for your role at most once. It is frozen for this attempt, cannot refresh initial context, and its prior output remains in history. It cannot execute orders.",
       schema: z.object({}),
       run: async () => ({
         data: Object.fromEntries(
