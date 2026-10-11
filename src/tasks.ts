@@ -114,6 +114,12 @@ export function validationFeedback(error: unknown): ResearchFeedback {
       instruction:
         "Complete your required tool attempts before final report: market needs market_klines for every configured symbol; news needs asset_news (covers all configured assets) or separate news_search for Bitcoin, Ethereum and BNB. For each asset with a publisherCandidates URL, attempt fetch_page on at least one of its publisher URLs. A Google News RSS/index wrapper is not a publisher article. FULL_TEXT is allowed only when fetch_page returned nonempty article body from that publisher URL; if the body is blocked or empty, mark HEADLINE_ONLY and state the failure. Macro needs an official fetch_page. Report source failures as missing, never as successful research. Do not stop after only one asset.",
     };
+  if (message === "network target lacks verified market evidence")
+    return {
+      code: "EVIDENCE",
+      instruction:
+        "Each networkAllocation.targets[].evidence and stableNetworkAllocation.targets[].evidence must include the corresponding asset's frozen context.markets market reference (requiredMarketEvidence in signalEvidenceRequirements), cited by a role. Every target reference must be role-cited supported market/news/dex/web evidence. Keep portfolio/accounting evidence in context/reports, not common-target independent evidence. This applies even to zero targets. If independent market support is missing, use null for that common allocation rather than inventing references or forcing targets.",
+    };
   if (/policy|target|weight|holdings|capital|HOLD/i.test(message))
     return {
       code: "RISK_POLICY",
