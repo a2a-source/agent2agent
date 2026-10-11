@@ -1,3 +1,4 @@
+import { llmHashConfig } from "./config.js";
 import { structuredOutput } from "./structured-output.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import {
@@ -71,7 +72,7 @@ export class AgentRuntime {
         schema: toJsonSchema(t.schema),
       })),
       config: runtimeConfig,
-      llm: c,
+      llm: llmHashConfig(c),
     });
     const prior = db.get<{ fingerprint: string; result: AgentResult }>(
       "agent-result",

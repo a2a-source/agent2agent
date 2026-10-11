@@ -26,6 +26,12 @@ import { verifyQsp } from "../src/qsp.js";
 for (const testnet of [false, true]) {
   test(`three v2 rounds bind context, reports and configured allocation identities on ${testnet ? "BSC97" : "mainnet"}`, async (t) => {
     const config = loadConfig();
+    config.llm.provider = {
+      only: ["open-inference/fp4"],
+      allowFallbacks: false,
+      requireParameters: true,
+      maxPrice: { prompt: 0.02, completion: 0.27 },
+    };
     config.research.enabled = true;
     if (testnet) {
       config.chain.id = 97;
@@ -82,10 +88,17 @@ for (const testnet of [false, true]) {
               supplied.researchScope.semantics,
               /researchSemanticsBrief/,
             );
+            assert.match(supplied.researchScope.semantics, /1000 tokens/);
+            assert.match(
+              supplied.context.researchSemanticsBrief.rateGuidance,
+              /25 bps/,
+            );
             semanticsPromptRoles.add(supplied.identity.role);
           }
           if (id.includes("synthesis")) {
             assert.match(supplied.semantics, /researchSemanticsBrief/);
+            assert.match(supplied.semantics, /QUALIFY or REJECT/);
+            assert.match(supplied.semantics, /1800 tokens/);
             semanticsPromptRoles.add("master");
           }
           assert.equal(

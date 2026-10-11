@@ -247,3 +247,38 @@ The [protocol and process persistence reference](persistence.md) describes SQLit
 [Stable-reserve wallet snapshots and plans](stable-wallet-plans.md) document the read-only confirmed-block collector, durable deterministic adaptation, local CLI, and execution boundaries.
 
 [Confirmed stable-reserve QSP consumption](confirmed-stable-qsp.md) describes the signed allocation extension, internal wallet qualification checks and durable plan linkage.
+
+Optional OpenRouter routing can be configured in `llm.provider`. Routing is
+omitted by default; the public model default remains unchanged. For example:
+
+```json
+{
+  "llm": {
+    "provider": {
+      "only": ["open-inference/fp4"],
+      "allowFallbacks": false,
+      "requireParameters": true,
+      "maxPrice": { "prompt": 0.02, "completion": 0.27 }
+    }
+  }
+}
+```
+
+`only` requires 1–32 nonempty provider tags of at most 160 characters.
+`allowFallbacks` defaults to false and `requireParameters` to true. Optional
+`maxPrice` requires finite nonnegative prompt and completion prices in USD per
+million tokens. Only these routing options are supported; they map to the API's
+`only`, `allow_fallbacks`, `require_parameters` and `max_price` keys. Configured
+routing replaces request-level provider options and is bound to persisted request
+hashes and provider health identities. Changing a route requires a new call ID;
+old completed results cannot be reused for that route. Omit routing for ordinary
+compatible API endpoints. Provider prices are separate from the Agent's existing
+fixed USD 0.01 charge per dispatched request. Store credentials outside committed
+configuration.
+
+Research prompts target roughly 1000 tokens per specialist and 1800 for synthesis,
+while retaining every required section, citation, decision and target. These are
+soft brevity targets, not truncation limits. Natural quantities are copied from
+frozen formatted observations; execution accounting currency, reference USDT
+valuation, dust, rate changes and timestamps stay distinct. Master decisions must
+qualify or reject incorrect role claims and give source-backed corrections.

@@ -1,3 +1,4 @@
+import { llmHashConfig } from "./config.js";
 import { freezeTerminalObservationRoster } from "./round-observation.js";
 import { toJsonSchema } from "@langchain/core/utils/json_schema";
 import { Confirmations, ConfirmationPending } from "./confirmation.js";
@@ -212,7 +213,7 @@ export class Runner {
         roles,
         reportTemplates: this.config.reportTemplates,
         master: this.config.masterPrompt,
-        llm: this.config.llm,
+        llm: llmHashConfig(this.config.llm),
         agent: this.config.agent,
         research: this.config.research,
       });

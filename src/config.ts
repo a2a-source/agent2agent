@@ -98,6 +98,21 @@ const schema = z.object({
     toolsEnabled: z.boolean(),
   }),
   llm: z.object({
+    provider: z
+      .object({
+        only: z.array(z.string().trim().min(1).max(160)).min(1).max(32),
+        allowFallbacks: z.boolean().default(false),
+        requireParameters: z.boolean().default(true),
+        maxPrice: z
+          .object({
+            prompt: z.number().finite().nonnegative(),
+            completion: z.number().finite().nonnegative(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     structuredOutputs: z.boolean().default(false),
     reasoningEffort: z
       .enum(["none", "minimal", "low", "medium", "high"])
@@ -147,6 +162,10 @@ const schema = z.object({
     .max(24),
 });
 export type Config = z.infer<typeof schema>;
+/** Preserve integer-only protocol hashing and historical unrouted identities. */
+export function llmHashConfig(c: Config["llm"]) {
+  return c.provider ? { ...c, provider: JSON.stringify(c.provider) } : c;
+}
 export function loadConfig(path?: string): Config {
   const base = JSON.parse(
     readFileSync(new URL("../config/default.json", import.meta.url), "utf8"),

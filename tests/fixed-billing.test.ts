@@ -37,6 +37,12 @@ test("each dispatched completion costs USD0.01 without requiring usage; cache is
     ),
   );
   try {
+    f.c.provider = {
+      only: ["open-inference/fp4"],
+      allowFallbacks: false,
+      requireParameters: true,
+      maxPrice: { prompt: 0.02, completion: 0.27 },
+    };
     const llm = new Llm(f.db, f.budget, f.c, "test");
     assert.equal(llm.maximum(), 10000000000000n);
     assert.equal((await llm.call("a", "one", "s", "i")).ok, true);

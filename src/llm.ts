@@ -5,7 +5,7 @@ import { Budget } from "./budget.js";
 import { hash } from "./protocol.js";
 import { classifyResearchFailure } from "./tasks.js";
 import { readJson } from "./http.js";
-import type { Config } from "./config.js";
+import { llmHashConfig, type Config } from "./config.js";
 import {
   quoteCost,
   validateQuote,
@@ -128,7 +128,13 @@ export class Llm {
   }
   private probing?: Promise<boolean>;
   private providerKey() {
-    return hash({ endpoint: this.config.endpoint, model: this.config.model });
+    return hash({
+      endpoint: this.config.endpoint,
+      model: this.config.model,
+      ...(this.config.provider
+        ? { provider: llmHashConfig(this.config).provider }
+        : {}),
+    });
   }
   private async waitForProbe(probe: Promise<boolean>, signal?: AbortSignal) {
     if (!signal) return probe;
@@ -299,6 +305,18 @@ export class Llm {
       model: c.model,
       max_tokens: c.maxOutputTokens,
       stream: false,
+      ...(c.provider
+        ? {
+            provider: {
+              only: c.provider.only,
+              allow_fallbacks: c.provider.allowFallbacks,
+              require_parameters: c.provider.requireParameters,
+              ...(c.provider.maxPrice
+                ? { max_price: c.provider.maxPrice }
+                : {}),
+            },
+          }
+        : {}),
       ...(c.reasoningEffort
         ? { reasoning: { effort: c.reasoningEffort } }
         : {}),
@@ -308,7 +326,11 @@ export class Llm {
       throw Error("LLM input exceeds configured budget");
     const requestHash = hash({
       agent,
-      payload,
+      // Protocol canonical numbers are integers; bind the exact routed JSON
+      // without changing the numeric prices sent to OpenRouter or legacy hashes.
+      payload: c.provider
+        ? { ...payload, provider: JSON.stringify(payload.provider) }
+        : payload,
       raw,
       endpoint: c.endpoint,
       billing: "fixed-request/1",

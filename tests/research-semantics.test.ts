@@ -188,3 +188,22 @@ test("canonical wrapper recognition is address and chain bound, including mainne
     "UNVERIFIED",
   );
 });
+
+test("provided BNB and dust retain exact natural quantities with explicit accounting, rate and timestamp guidance", async () => {
+  const c = await context8368(),
+    before = hash(c);
+  const brief = promptSnapshot(c).researchSemanticsBrief;
+  assert.equal(
+    brief.holdings.find((p) => p.symbol === "BNB")!.quantity,
+    "0.04891348495",
+  );
+  assert.equal(brief.holdings[0]!.valueUSDT, "0.0");
+  assert.match(brief.quantityGuidance, /Copy.*exact/i);
+  assert.match(brief.quantityGuidance, /1 BNB = 1e18 wei/);
+  assert.match(brief.quantityGuidance, /dust.*not zero/i);
+  assert.match(brief.accountingGuidance, /accountingBrief.currency/);
+  assert.match(brief.accountingGuidance, /1 USD = 1e6 microUSD/);
+  assert.match(brief.rateGuidance, /0.25 percentage point = 25 bps/);
+  assert.match(brief.timestampGuidance, /ISO.*raw timestamp/);
+  assert.equal(hash(c), before);
+});

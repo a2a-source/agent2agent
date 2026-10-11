@@ -42,7 +42,13 @@ export function researchSemanticsBrief(c: ResearchContext) {
   return {
     version: "research-semantics-brief/1",
     quantityGuidance:
-      "Holdings quantities below are natural token units for prose; facts.assets[].quantity and facts.nativeFunding.quantity are integer base units with decimals. Never label base units as whole tokens. Small nonzero quantities can have zero rounded value. Weight percentages are truncated to six decimal places, not policy authority.",
+      "Copy the already formatted natural holdings quantity strings exactly for prose; do not recalculate or reprint raw units unless required. 1 BNB = 1e18 wei. Holdings quantities below are natural token units for prose; facts.assets[].quantity and facts.nativeFunding.quantity are integer base units with decimals. Never label base units as whole tokens. Small nonzero quantities can have zero rounded value: describe them as dust, not zero quantity. Weight percentages are truncated to six decimal places, not policy authority.",
+    accountingGuidance:
+      "Use accountingBrief.currency for execution accounting, separately from portfolio USDT reference valuation. 1 USD = 1e6 microUSD; microUSD is not microUSDT. Cite verified matched-wallet window results and source evidence; known window profit does not establish unknown lifetime USDT cost basis or profit.",
+    rateGuidance:
+      "1 percentage point = 100 bps; 0.25 percentage point = 25 bps, not 0.25 bps. A rate level in percent differs from its change in percentage points. For supplied bps, divide by 100 only when explicitly expressing a percentage; preserve sign and metric horizon.",
+    timestampGuidance:
+      "Copy provided ISO strings or raw timestamps with their supplied units. Do not invent ISO conversions, time gaps or dates by mental arithmetic.",
     portfolioCoverage:
       "Positions must cover every holdings row, including stable/reserve balances outside the configured risk-research universe. Those balances do not add market/news research tasks. USDT reference valuation does not prove redeemability or execution funding approval.",
     holdings,
@@ -79,11 +85,25 @@ export function researchSemanticsBrief(c: ResearchContext) {
 }
 
 export function roleSemanticsInstruction(role: string) {
+  const concise =
+    " Aim for approximately 1000 tokens; preserve ALL required sections, evidence and recommendations. Avoid duplicated prose. Copy formatted natural quantities exactly; follow researchSemanticsBrief accounting, rate and timestamp guidance.";
   if (role === "positions")
-    return "Use researchSemanticsBrief.holdings for every portfolio asset, including stable reserves outside the research universe; report natural token units, values and weights.";
+    return (
+      "Use researchSemanticsBrief.holdings for every portfolio asset, including stable reserves outside the research universe; report natural token units, values and weights." +
+      concise
+    );
   if (role === "risk")
-    return "Use researchSemanticsBrief.gas for the explicit reserve and remaining native funding, and its execution constraints; known zero is not missing.";
+    return (
+      "Use researchSemanticsBrief.gas for the explicit reserve and remaining native funding, and its execution constraints; known zero is not missing." +
+      concise
+    );
   if (role === "onchain")
-    return "Use researchSemanticsBrief for chain/address-bound mechanisms, native/token BNB scope and liquidity-versus-quote boundaries; no executable-size claim without a quote.";
-  return "Use researchSemanticsBrief for quantity units, portfolio scope and evidence limits.";
+    return (
+      "Use researchSemanticsBrief for chain/address-bound mechanisms, native/token BNB scope and liquidity-versus-quote boundaries; no executable-size claim without a quote." +
+      concise
+    );
+  return (
+    "Use researchSemanticsBrief for quantity units, portfolio scope and evidence limits." +
+    concise
+  );
 }
