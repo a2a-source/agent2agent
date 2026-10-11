@@ -80,7 +80,7 @@
   ],
   "rsaKeyRingFile": "",
   "recovery": {
-    "researchConcurrency": 3,
+    "researchConcurrency": 6,
     "researchMaxAttempts": 2,
     "scanPagesPerTick": 4,
     "retryBaseMs": 1000,
@@ -162,5 +162,12 @@
     "retryMs": 5000,
     "leaseMs": 120000,
     "maxJobsPerTick": 4
+  },
+  "roundTiming": {
+    "version": "fixed-start/1",
+    "intervalMs": 300000,
+    "maxDurationMs": 300000,
+    "viewTimeoutMs": 240000,
+    "confirmationReserveMs": 15000
   }
 }

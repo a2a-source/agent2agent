@@ -4,5 +4,6 @@ export function loadConfig() {
   const c = load();
   c.llm.bnbUsdMicros = "250000000000000000000";
   c.research.enabled = false;
+  delete c.roundTiming; // Legacy fixtures opt into fixed timing explicitly.
   return c;
 }

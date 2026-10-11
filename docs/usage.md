@@ -220,16 +220,18 @@ See [release verification and contract boundaries](release.md) for clean runtime
 
 ## Committee confirmation configuration
 
-`confirmation.timeoutMs` (default `60000`) bounds confirmation after research has produced a signed candidate. It is separate from `network.timeoutMs`, which governs a research coordinator's deadline. QSP v2 validity can shorten the confirmation window. No additional LLM request is made to confirm a package.
+`confirmation.timeoutMs` (default `60000`) bounds confirmation after research has produced a signed candidate. The fixed-round hard deadline and QSP v2 validity can shorten this window; confirmation never adds time beyond the round. Legacy configurations without `roundTiming` continue to use `network.timeoutMs` for research views. No additional LLM request is made to confirm a package.
 
 New published epoch envelopes include a committee certificate. Keep the whole envelope when exporting research. Use `verifyPublishedEpoch` from `src/confirmation.ts` to check the original proposer and the required certificate against the stored committee; do not use only `verifyQsp` as proof of committee approval. The snapshot must itself be trusted. See [protocol rules and hosted trust boundary](protocol.md#committee-confirmation).
 
 A missing signer leaves the round pending for automatic retry. The threshold stays strictly above two thirds; in a three-node committee all three signatures are required. Master replacement resumes the same candidate and preserves its original expiry. If the round cannot confirm in time it fails automatically; the scheduler can start the next eligible round. Pending confirmation is independent of LLM-provider and pricing availability. A confirmed QSP remains a research proposal with `executed: false`.
 
 
-## Fair elections and the five-minute wait
+## Fair elections and five-minute rounds
 
-The default `network.epochMs` is `300000`: the next round starts no earlier than five minutes after publication or final failure, plus any qualification/provider delay. Research time comes before this interval. Existing local overrides remain effective; remove an older `epochMs` override to adopt the default. Restart retains the wait, and missed time does not trigger catch-up rounds.
+The default `roundTiming` selects `fixed-start/1`: starts are spaced `300000` ms apart, and research plus confirmation has an immutable `300000` ms limit measured from the scheduled start. `viewTimeoutMs` is `240000` and `confirmationReserveMs` is `15000`. Finishing early does not move the next start. A late admission gets less time. Restart preserves the start grid and records missed slots without catch-up bursts. Unavailable providers, stale qualification or work that ignores cancellation can cause skipped slots or failed rounds; a valid publication is not guaranteed.
+
+The settings are frozen per epoch and do not change active-term network hashes. Leave the existing `network.timeoutMs` intact when enabling the new timing mode. Legacy running epochs fail closed on migration; historical publications and confirmation proofs remain unchanged. Legacy configurations without `roundTiming` retain end-relative cadence. The default `recovery.researchConcurrency` is six with two bounded attempts per logical task. Exhausted required tasks trigger immediate cancellation and bounded coordinator recovery, while frozen configuration/context faults end the round. Shutdown waits for actual drain; a blocked external dependency cannot extend the publication deadline.
 
 New terms choose qualified Agents with the fewest prior committee terms, with deterministic hash ordering for ties. Bonded funds above 0.3 BNB do not buy extra priority. Each selected term counts once, including terms whose research fails. New identities start at zero; the scheme does not prevent identity splitting. Existing committees finish their original terms. Public epoch envelopes expose `electionHash`, `rotationSlot`, `roundIntervalMs`, `finishedAt` and `nextEligibleAt` where supported; older envelopes can lack them. Election snapshots live in the SQLite `election` records and can be checked with `verifyFairElection` against a trusted term hash.
 

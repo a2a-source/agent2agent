@@ -268,6 +268,8 @@ export interface ResearchOptions {
   resumable?: boolean;
   concurrency?: number;
   maxAttempts?: number;
+  onFailure?: (error: unknown) => void;
+  signal?: AbortSignal;
 }
 export class ResearchTasks {
   readonly concurrency: number;
@@ -291,6 +293,7 @@ export class ResearchTasks {
     const result: R[] = [];
     let cursor = 0;
     let failed = false;
+    let firstError: unknown;
     const outcomes = await Promise.allSettled(
       Array.from(
         { length: Math.min(items.length, this.concurrency) },
@@ -301,7 +304,11 @@ export class ResearchTasks {
             try {
               result[index] = await work(items[index]!);
             } catch (e) {
-              failed = true;
+              if (!failed) {
+                firstError = e;
+                failed = true;
+                this.options.onFailure?.(e);
+              }
               throw e;
             }
           }
@@ -309,7 +316,7 @@ export class ResearchTasks {
       ),
     );
     const rejection = outcomes.find((o) => o.status === "rejected");
-    if (rejection?.status === "rejected") throw rejection.reason;
+    if (rejection?.status === "rejected") throw firstError;
     return result;
   }
   async execute<T>(
@@ -473,7 +480,13 @@ export class ResearchTasks {
         // persisted ownership/deadline proof can make this interruption final.
         const failure = classifyResearchFailure(error);
         try {
-          if (failure === "PLATFORM" || failure === "PROVIDER") check();
+          if (
+            failure === "PLATFORM" ||
+            failure === "PROVIDER" ||
+            this.options.signal?.aborted ||
+            closure(this.db, task, Date.now())
+          )
+            check();
         } catch (stopped) {
           this.db.put("research-attempt", id, {
             ...base,

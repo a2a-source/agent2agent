@@ -92,6 +92,14 @@ export class Runner {
   }
   async run(epoch: Epoch) {
     if (this.busy) throw Error("runner busy");
+    const persisted = this.epochs.get(epoch.id);
+    if (
+      persisted.view !== epoch.view ||
+      persisted.master !== epoch.master ||
+      persisted.status !== "RUNNING"
+    )
+      throw Error("stale epoch");
+    epoch = persisted;
     this.busy = true;
     const runId = `${epoch.id}:${epoch.view}`;
     const controller = new AbortController();
@@ -100,8 +108,28 @@ export class Runner {
       () => controller.abort(new Error("epoch deadline expired")),
       Math.max(0, epoch.deadline - Date.now()),
     );
+    const hardTimer =
+      epoch.roundDeadline === undefined
+        ? undefined
+        : setTimeout(
+            () => {
+              controller.abort(new Error("round deadline expired"));
+              const live = this.epochs.get(epoch.id);
+              if (
+                live.status === "RUNNING" &&
+                Date.now() >= live.roundDeadline!
+              )
+                this.epochs.fail(live.id, live.view, "ROUND_DEADLINE_EXPIRED");
+            },
+            Math.max(0, epoch.roundDeadline - Date.now()),
+          );
     const tasks = new ResearchTasks(this.agents.db, {
+      concurrency: this.config.recovery.researchConcurrency,
+      maxAttempts: this.config.recovery.researchMaxAttempts,
       ...this.recovery,
+      signal: controller.signal,
+      onFailure: () =>
+        controller.abort(new Error("required research task failed")),
       resumable: !!this.react,
       epoch: epoch.id,
       view: epoch.view,
@@ -497,6 +525,7 @@ export class Runner {
       throw e;
     } finally {
       clearTimeout(timer);
+      clearTimeout(hardTimer);
       this.controller = undefined;
       this.busy = false;
     }
@@ -529,6 +558,15 @@ export class Runner {
     const signature = await this.agents.vault.withWallet(wallet, (w) =>
       w.signMessage(message),
     );
+    const live = this.epochs.get(epoch.id);
+    if (
+      controller.signal.aborted ||
+      live.status !== "RUNNING" ||
+      live.view !== epoch.view ||
+      Date.now() >= live.deadline ||
+      (live.roundDeadline !== undefined && Date.now() >= live.roundDeadline)
+    )
+      throw Error("epoch deadline expired");
     if (!verifyQsp(this.config.chain.id, output, signature, wallet.address))
       throw Error("signature verification failed");
     this.assertActive(epoch.master);
@@ -572,7 +610,8 @@ export class Runner {
         live.status !== "RUNNING" ||
         live.view !== epoch.view ||
         live.master !== epoch.master ||
-        Date.now() >= live.deadline
+        Date.now() >= live.deadline ||
+        (live.roundDeadline !== undefined && Date.now() >= live.roundDeadline)
       )
         throw new ConfirmationPending(
           "confirmation coordinator superseded or expired",

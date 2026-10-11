@@ -1,3 +1,4 @@
+import { validateEpochTiming } from "./cadence.js";
 import { verifyMessage } from "ethers";
 import { hash, type Candidate } from "./protocol.js";
 import { qspSchema, synthesisSchema, verifyQsp } from "./qsp.js";
@@ -106,6 +107,14 @@ export function verifyConfirmation(
 /** Verifies a stored epoch using its original proposer, including the mandatory new certificate. */
 export function verifyPublishedEpoch(chainId: number, epoch: Epoch): boolean {
   try {
+    validateEpochTiming(epoch);
+    if (
+      epoch.roundDeadline !== undefined &&
+      (!epoch.confirmation ||
+        epoch.confirmation.confirmedAt >= epoch.roundDeadline ||
+        epoch.confirmation.expiresAt > epoch.roundDeadline)
+    )
+      return false;
     if (epoch.status !== "PUBLISHED" || !epoch.signature) return false;
     const q = qspSchema.parse(epoch.output),
       signer = epoch.committee.find((c) => c.id === q.master);
@@ -144,8 +153,10 @@ export class Confirmations {
       live.master !== epoch.master
     )
       throw Error("stale confirmation coordinator");
+    validateEpochTiming(live);
     if (
       now >= live.deadline ||
+      (live.roundDeadline !== undefined && now >= live.roundDeadline) ||
       (live.confirmationDeadline !== undefined &&
         now >= live.confirmationDeadline)
     )
@@ -292,6 +303,7 @@ export class Confirmations {
         throw Error("invalid confirmation timeout");
       const expiresAt = Math.min(
         now + options.timeoutMs,
+        live.roundDeadline ?? Number.MAX_SAFE_INTEGER,
         q.version === "a2a-qsp/2" ? q.validUntil : Number.MAX_SAFE_INTEGER,
       );
       if (expiresAt <= now) throw Error("proposal expired");

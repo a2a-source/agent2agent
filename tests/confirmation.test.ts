@@ -417,3 +417,230 @@ test("scheduler reaches FAILED at fixed confirmation expiry even with unavailabl
     f.db.close();
   }
 });
+
+test("fixed-round confirmation freezes the original candidate within the immutable whole-round deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["Date"], now: 1000 });
+  const db = new Store(":memory:"),
+    epochs = new Epochs(db),
+    wallets = Array.from({ length: 3 }, () => Wallet.createRandom());
+  const members = wallets.map((w, i) => ({
+    id: `a${i}`,
+    wallet: w.address,
+    stake: "300000000000000000",
+    compute: "1000000",
+  }));
+  try {
+    const original = epochs.open(
+      0,
+      members,
+      { termSlots: 7, committeeSize: 3, timeoutMs: 1800000 },
+      1000,
+      {
+        version: "fixed-start/1",
+        intervalMs: 300000,
+        maxDurationMs: 300000,
+        viewTimeoutMs: 240000,
+        confirmationReserveMs: 15000,
+      },
+    );
+    const epoch = epochs.takeover(original.id, 0, 241000);
+    const output = {
+      version: "a2a-qsp/1" as const,
+      epoch: epoch.id,
+      view: epoch.view,
+      master: epoch.master,
+      committeeHash: hash(epoch.committee),
+      configHash: hash({ roles: ["risk"] }),
+      dataAt: 281000,
+      reports: [
+        {
+          role: "risk",
+          agent: epoch.committee.find((c) => c.id !== epoch.master)!.id,
+          summary: "No execution",
+          sources: [],
+          missing: ["No market"],
+        },
+      ],
+      signals: [],
+      risks: ["No executable quote"],
+      executed: false as const,
+    };
+    const signature = await wallets[Number(epoch.master.slice(1))]!.signMessage(
+      signingMessage(97, output),
+    );
+    const book = new Confirmations(db),
+      proposal = book.freeze(
+        epoch,
+        output,
+        signature,
+        {
+          chainId: 97,
+          timeoutMs: 60000,
+          roles: ["risk"],
+          expectedConfigHash: output.configHash,
+          toolsEnabled: false,
+        },
+        281000,
+      );
+    assert.equal(proposal.descriptor.expiresAt, 301000);
+    const next = epochs.takeover(
+      epoch.id,
+      epoch.view,
+      epochs.get(epoch.id).deadline,
+    );
+    assert.equal(next.roundDeadline, 301000);
+    assert.deepEqual(book.proposal(epoch.id), proposal);
+    assert.equal(
+      new Confirmations(db).proposal(epoch.id)!.descriptor.expiresAt,
+      301000,
+    );
+    assert.throws(() => book.intent(next, next.master, 301000), /expired/);
+    assert.throws(
+      () =>
+        epochs.publish(
+          next.id,
+          next.view,
+          next.master,
+          output,
+          signature,
+          301000,
+        ),
+      /expired/,
+    );
+  } finally {
+    db.close();
+  }
+});
+
+test("Runner keeps hard expiry armed while a resumed confirmation signer ignores cancellation", async (t) => {
+  const { Runner } = await import("../src/runner.js");
+  const { loadConfig } = await import("./test-config.js");
+  t.mock.timers.enable({ apis: ["Date", "setTimeout"], now: 1000 });
+  const f = await fixture();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const timed = {
+    ...f.epochs.get(f.epoch.id),
+    timingVersion: "fixed-start/1" as const,
+    roundTiming: {
+      version: "fixed-start/1" as const,
+      intervalMs: 300000,
+      maxDurationMs: 300000,
+      viewTimeoutMs: 240000,
+      confirmationReserveMs: 15000,
+    },
+    scheduledAt: 1000,
+    startedAt: 1000,
+    roundDeadline: 301000,
+    researchDeadline: 286000,
+    roundIntervalMs: 300000,
+  };
+  f.db.put("epoch", timed.id, timed);
+  const agents: any = {
+    db: f.db,
+    get: (id: string) => ({ id, launch: "CONFIRMED", jailed: false }),
+    vault: {
+      withWallet: async (w: any, fn: any) => {
+        await gate;
+        return fn(f.wallet(w.id));
+      },
+    },
+  };
+  for (const c of timed.committee) {
+    f.db.put("wallet", c.id, { id: c.id, address: c.wallet });
+    f.db.put("chain-state", c.id, {
+      known: true,
+      observedAt: 1000,
+      bonded: "300000000000000000",
+      exit: "0",
+    });
+  }
+  const runner = new Runner(
+    agents,
+    {} as any,
+    f.epochs,
+    {} as any,
+    loadConfig(),
+  );
+  const pending = assert.rejects(
+    runner.run({ ...timed, roundDeadline: undefined }),
+  );
+  await new Promise<void>((r) => setImmediate(r));
+  t.mock.timers.tick(300000);
+  assert.equal(f.epochs.get(timed.id).status, "FAILED");
+  release();
+  await pending;
+  assert.equal(f.db.all("confirmation-vote").length, 0);
+  assert.equal(f.epochs.get(timed.id).output, undefined);
+  f.db.close();
+});
+
+for (const interruptedBy of ["deadline", "stop"] as const)
+  test(`a candidate signature resolving after ${interruptedBy} cannot freeze or publish`, async (t) => {
+    const { Runner } = await import("../src/runner.js");
+    const { loadConfig } = await import("./test-config.js");
+    t.mock.timers.enable({ apis: ["Date"], now: 1000 });
+    const f = await fixture();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    f.db.remove("confirmation-proposal", f.epoch.id);
+    const e = {
+      ...f.epoch,
+      timingVersion: "fixed-start/1" as const,
+      roundTiming: {
+        version: "fixed-start/1" as const,
+        intervalMs: 300000,
+        maxDurationMs: 300000,
+        viewTimeoutMs: 240000,
+        confirmationReserveMs: 15000,
+      },
+      scheduledAt: 1000,
+      startedAt: 1000,
+      roundDeadline: 301000,
+      researchDeadline: 286000,
+      roundIntervalMs: 300000,
+      deadline: 241000,
+    };
+    f.db.put("epoch", e.id, e);
+    f.db.put("wallet", e.master, {
+      id: e.master,
+      address: f.wallet(e.master).address,
+    });
+    f.db.put("chain-state", e.master, {
+      known: true,
+      observedAt: 1000,
+      bonded: "300000000000000000",
+      exit: "0",
+    });
+    const agents: any = {
+      db: f.db,
+      get: (id: string) => ({ id, launch: "CONFIRMED", jailed: false }),
+      vault: {
+        withWallet: async () => {
+          await gate;
+          return f.signature;
+        },
+      },
+    };
+    const runner = new Runner(
+        agents,
+        {} as any,
+        f.epochs,
+        {} as any,
+        loadConfig(),
+      ),
+      controller = new AbortController();
+    // Exercise the async signing boundary independently of research adapters.
+    const pending = assert.rejects(
+      (runner as any).publish(e, f.output, controller, () => {}),
+      /expired/,
+    );
+    await new Promise<void>((r) => setImmediate(r));
+    if (interruptedBy === "deadline") t.mock.timers.setTime(241000);
+    else controller.abort();
+    release();
+    await pending;
+    assert.equal(f.db.get("confirmation-proposal", e.id), undefined);
+    assert.equal(f.epochs.get(e.id).output, undefined);
+    f.db.close();
+  });

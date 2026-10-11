@@ -460,6 +460,7 @@ for (const cached of ["absent", "valid", "expired"] as const) {
       oracle.pending[oracle.pending.length - 2]!.resolve(priceQuote());
       await concurrent;
       const recovery = scheduler.tick();
+      await new Promise((resolve) => setImmediate(resolve));
       oracle.pending.at(-1)!.resolve(priceQuote());
       await recovery;
       await scheduler.stop();

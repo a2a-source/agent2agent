@@ -12,6 +12,22 @@ import {
 const wei = z.string().regex(/^(0|[1-9][0-9]*)$/);
 const integer = z.number().int().positive().safe();
 const schema = z.object({
+  roundTiming: z
+    .object({
+      version: z.literal("fixed-start/1"),
+      intervalMs: integer,
+      maxDurationMs: integer,
+      viewTimeoutMs: integer,
+      confirmationReserveMs: integer,
+    })
+    .refine(
+      (t) =>
+        t.maxDurationMs <= t.intervalMs &&
+        t.viewTimeoutMs <= t.maxDurationMs &&
+        t.confirmationReserveMs < t.maxDurationMs,
+      "invalid round timing",
+    )
+    .optional(),
   investmentPlanning: planningConfigSchema.default({}),
   investmentExecution: executionConfigSchema.default({}),
   investmentRisk: investmentRiskPolicySchema.default({}),

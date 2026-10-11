@@ -8,6 +8,9 @@ import {
   DEFAULT_ROUND_INTERVAL_MS,
   validInterval,
   terminalTiming,
+  validateRoundTiming,
+  validateEpochTiming,
+  type RoundTiming,
 } from "./cadence.js";
 import { Store } from "./store.js";
 import { Confirmations, type ConfirmationCertificate } from "./confirmation.js";
@@ -41,6 +44,12 @@ export interface Epoch {
   signature?: string;
   rotationSlot?: number;
   roundIntervalMs?: number;
+  timingVersion?: "fixed-start/1";
+  scheduledAt?: number;
+  startedAt?: number;
+  roundDeadline?: number;
+  researchDeadline?: number;
+  roundTiming?: RoundTiming;
   finishedAt?: number;
   nextEligibleAt?: number;
   confirmationRequired?: boolean;
@@ -53,6 +62,7 @@ export class Epochs {
   get(id: string) {
     const e = this.db.get<Epoch>("epoch", id);
     if (!e) throw Error("epoch not found");
+    validateEpochTiming(e);
     return e;
   }
   open(
@@ -60,6 +70,8 @@ export class Epochs {
     candidates: Candidate[],
     config: EpochConfig,
     now = Date.now(),
+    timing?: RoundTiming,
+    scheduledAt = now,
   ): Epoch {
     return this.db.transaction(() => {
       if (
@@ -70,6 +82,18 @@ export class Epochs {
         config.timeoutMs < 1
       )
         throw Error("invalid epoch config");
+      if (timing) {
+        validateRoundTiming(timing);
+        if (
+          !Number.isSafeInteger(scheduledAt) ||
+          scheduledAt < 0 ||
+          now < scheduledAt ||
+          !Number.isSafeInteger(scheduledAt + timing.maxDurationMs) ||
+          now >=
+            scheduledAt + timing.maxDurationMs - timing.confirmationReserveMs
+        )
+          throw Error("round admission expired");
+      }
       const id = String(slot),
         existing = this.db.get<Epoch>("epoch", id);
       if (existing) return existing;
@@ -150,6 +174,26 @@ export class Epochs {
           config.epochMs ?? DEFAULT_ROUND_INTERVAL_MS,
         ),
         deadline: now + config.timeoutMs,
+        ...(timing
+          ? {
+              timingVersion: timing.version,
+              roundTiming: { ...timing },
+              scheduledAt,
+              startedAt: now,
+              roundIntervalMs: timing.intervalMs,
+              roundDeadline: scheduledAt + timing.maxDurationMs,
+              researchDeadline:
+                scheduledAt +
+                timing.maxDurationMs -
+                timing.confirmationReserveMs,
+              deadline: Math.min(
+                scheduledAt +
+                  timing.maxDurationMs -
+                  timing.confirmationReserveMs,
+                now + timing.viewTimeoutMs,
+              ),
+            }
+          : {}),
         status: "RUNNING",
         confirmationRequired: true,
       };
@@ -157,13 +201,64 @@ export class Epochs {
       return e;
     });
   }
-  takeover(id: string, expectedView: number, now = Date.now()) {
+  fail(id: string, expectedView: number, reason: string, now = Date.now()) {
     return this.db.transaction(() => {
       const e = this.get(id);
       if (e.status !== "RUNNING" || e.view !== expectedView)
         throw Error("stale epoch");
-      if (now < e.deadline) throw Error("deadline not reached");
+      this.incident(`${id}:${expectedView}:terminal`, e.master, reason, now);
+      const failed: Epoch = {
+        ...e,
+        status: "FAILED",
+        ...terminalTiming(e, now),
+      };
+      this.db.put("epoch", id, failed);
+      freezeTerminalObservationRoster(this.db, failed);
+      return failed;
+    });
+  }
+  failedView(id: string, view: number) {
+    return (
+      this.db
+        .all<{
+          epoch?: string;
+          view?: number;
+          status: string;
+          terminalReason?: string;
+        }>("research-task")
+        .some(
+          (t) => t.epoch === id && t.view === view && t.status === "FAILED",
+        ) || !!this.db.get("research-failure", `${id}:${view}`)
+    );
+  }
+  recoverFailedView(id: string, expectedView: number, now = Date.now()) {
+    return this.advance(id, expectedView, now, true);
+  }
+  takeover(id: string, expectedView: number, now = Date.now()) {
+    return this.advance(id, expectedView, now, false);
+  }
+  private advance(
+    id: string,
+    expectedView: number,
+    now: number,
+    failed: boolean,
+  ) {
+    return this.db.transaction(() => {
+      const e = this.get(id);
+      if (e.status !== "RUNNING" || e.view !== expectedView)
+        throw Error("stale epoch");
+      if (failed) {
+        if (
+          this.db.get("confirmation-proposal", id) ||
+          !this.failedView(id, expectedView)
+        )
+          throw Error("required task failure proof missing");
+      } else if (now < e.deadline) throw Error("deadline not reached");
       if (
+        (e.roundDeadline !== undefined && now >= e.roundDeadline) ||
+        (!e.confirmationDeadline &&
+          e.researchDeadline !== undefined &&
+          now >= e.researchDeadline) ||
         (e.confirmationDeadline !== undefined &&
           now >= e.confirmationDeadline) ||
         e.view + 1 >= e.committee.length
@@ -178,8 +273,14 @@ export class Epochs {
           e.view,
         ).id;
         e.deadline = Math.min(
-          e.confirmationDeadline ?? Number.MAX_SAFE_INTEGER,
-          now + (e.confirmationViewMs ?? e.config.timeoutMs),
+          e.roundDeadline ?? Number.MAX_SAFE_INTEGER,
+          e.confirmationDeadline ??
+            e.researchDeadline ??
+            Number.MAX_SAFE_INTEGER,
+          now +
+            (e.confirmationViewMs ??
+              e.roundTiming?.viewTimeoutMs ??
+              e.config.timeoutMs),
         );
       }
       this.db.put("epoch", id, e);
@@ -197,7 +298,11 @@ export class Epochs {
   ) {
     return this.db.transaction(() => {
       const e = this.get(id);
-      if (now >= e.deadline) throw Error("epoch deadline expired");
+      if (
+        now >= e.deadline ||
+        (e.roundDeadline !== undefined && now >= e.roundDeadline)
+      )
+        throw Error("epoch deadline expired");
       if (e.status === "PUBLISHED") throw Error("already published");
       if (e.status !== "RUNNING" || e.view !== view || e.master !== master)
         throw Error("stale epoch");
